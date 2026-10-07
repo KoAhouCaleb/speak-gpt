@@ -17,10 +17,12 @@
 **************************************************************************/
 -->
 <!-- Self-hosted API, speech-to-text and text-to-speech servers often run on plain HTTP in a local network. -->
+<!-- They may also use certificates from a private CA that the user installed on the device. -->
 <network-security-config>
     <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
+            <certificates src="user" />
         </trust-anchors>
     </base-config>
 </network-security-config>
