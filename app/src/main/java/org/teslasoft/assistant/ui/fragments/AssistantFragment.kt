@@ -135,6 +135,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.teslasoft.assistant.R
+import org.teslasoft.assistant.assist.ScreenCaptureAccessibilityService
 import org.teslasoft.assistant.preferences.ApiEndpointPreferences
 import org.teslasoft.assistant.preferences.ChatPreferences
 import org.teslasoft.assistant.preferences.LogitBiasPreferences
@@ -2616,13 +2617,11 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         hideKeyboard()
     }
 
-    private fun isFromAssistSession(): Boolean {
-        return (mContext as Activity?)?.intent?.getBooleanExtra(EXTRA_FROM_ASSIST_SESSION, false) == true
-    }
-
     private fun hasScreenContext(): Boolean {
         val context = mContext ?: return false
-        return isFromAssistSession() && ScreenContextStore.hasContext(context)
+        // Captures are written by AssistSession or ScreenCaptureAccessibilityService right before
+        // the overlay opens, and expire after two minutes
+        return ScreenContextStore.hasContext(context)
     }
 
     private fun initScreenContext(savedInstanceState: Bundle?) {
@@ -2641,37 +2640,29 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         }
     }
 
-    private fun isDefaultAssistant(context: Context): Boolean {
-        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
-            (context.getSystemService(Context.ROLE_SERVICE) as android.app.role.RoleManager).isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
-        } else {
-            true
-        }
-    }
-
     private fun explainScreenContextUnavailable() {
         val context = mContext ?: return
 
-        val message = when {
-            !isDefaultAssistant(context) -> R.string.msg_screen_not_default_assistant
-            !isFromAssistSession() -> R.string.msg_screen_legacy_launch
-            else -> R.string.msg_screen_not_provided
+        val builder = MaterialAlertDialogBuilder(context, R.style.App_MaterialAlertDialog)
+            .setTitle(R.string.label_screen_unavailable)
+            .setNegativeButton(R.string.btn_close) { _, _ -> }
+
+        if (ScreenCaptureAccessibilityService.isEnabled()) {
+            builder.setMessage(R.string.msg_screen_capture_failed)
+        } else {
+            builder.setMessage(R.string.msg_screen_enable_accessibility)
+                .setPositiveButton(R.string.btn_open_accessibility_settings) { _, _ ->
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    } catch (_: Exception) {
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                        } catch (_: Exception) { /* ignored */ }
+                    }
+                }
         }
 
-        MaterialAlertDialogBuilder(context, R.style.App_MaterialAlertDialog)
-            .setTitle(R.string.label_screen_unavailable)
-            .setMessage(message)
-            .setPositiveButton(R.string.btn_open_assistant_settings) { _, _ ->
-                try {
-                    startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
-                } catch (_: Exception) {
-                    try {
-                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
-                    } catch (_: Exception) { /* ignored */ }
-                }
-            }
-            .setNegativeButton(R.string.btn_close) { _, _ -> }
-            .show()
+        builder.show()
     }
 
     /**

@@ -386,6 +386,19 @@
             android:permission="android.permission.BIND_VOICE_INTERACTION" />
 
         <service
+            android:name=".assist.ScreenCaptureAccessibilityService"
+            android:exported="true"
+            android:label="@string/accessibility_service_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/screen_capture_accessibility_service" />
+        </service>
+
+        <service
             android:name=".assist.AssistRecognitionService"
             android:exported="true"
             android:label="@string/app_name">
