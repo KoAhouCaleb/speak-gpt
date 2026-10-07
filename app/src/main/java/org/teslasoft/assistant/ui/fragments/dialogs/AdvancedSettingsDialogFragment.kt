@@ -26,6 +26,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.util.Log
 import android.util.TypedValue
 import android.widget.EditText
 import android.widget.RadioButton
@@ -49,6 +50,8 @@ import org.teslasoft.assistant.util.ModelListClient
 
 class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
     companion object {
+        private const val TAG = "AdvancedSettings"
+
         fun newInstance(name: String, chatId: String) : AdvancedSettingsDialogFragment {
             val advancedSettingsDialogFragment = AdvancedSettingsDialogFragment()
 
@@ -208,24 +211,34 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
 
     private fun loadModels(preferences: Preferences) {
         val apiEndpointPreferences = ApiEndpointPreferences.getApiEndpointPreferences(requireActivity())
-        val apiEndpoint = apiEndpointPreferences.getApiEndpoint(requireActivity(), preferences.getApiEndpointId())
+        val apiEndpointId = preferences.getApiEndpointId()
+        val apiEndpoint = apiEndpointPreferences.getApiEndpoint(requireActivity(), apiEndpointId)
+        val url = ModelListClient.modelsUrl(apiEndpoint.host)
+
+        Log.i(TAG, "Loading models for endpoint \"${apiEndpoint.label}\" (id $apiEndpointId, host \"${apiEndpoint.host}\"), saved model \"$model\"")
+        modelsStatus?.text = getString(R.string.label_loading_models) + "\n" + url
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
                 val models = ModelListClient.fetchTextModels(apiEndpoint.host, apiEndpoint.apiKey)
 
                 if (models.isEmpty()) {
-                    modelsStatus?.text = getString(R.string.label_no_models_found)
+                    Log.w(TAG, "No text models returned by $url")
+                    modelsStatus?.text = getString(R.string.label_no_models_found) + "\n" + url
                     return@launch
                 }
 
                 populateModelButtons(models)
+                Log.i(TAG, "Showing ${modelButtons.size} model buttons, saved model in list: ${modelButtons.containsKey(model)}")
                 modelsStatus?.visibility = View.GONE
                 reloadModelList(model)
             } catch (e: CancellationException) {
+                Log.i(TAG, "Model loading cancelled (dialog closed)")
                 throw e
-            } catch (e: Exception) {
-                modelsStatus?.text = getString(R.string.msg_model_loading_error_with_details) + e.message.toString()
+            } catch (e: Throwable) {
+                // Throwable, not Exception, so errors such as classes removed by R8 are shown too
+                Log.e(TAG, "Failed to load models from $url", e)
+                modelsStatus?.text = getString(R.string.msg_model_loading_error_with_details) + e.javaClass.simpleName + ": " + e.message.toString() + "\n" + url
             }
         }
     }

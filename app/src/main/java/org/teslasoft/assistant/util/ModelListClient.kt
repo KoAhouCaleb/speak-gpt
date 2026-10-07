@@ -16,6 +16,7 @@
 
 package org.teslasoft.assistant.util
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -32,6 +33,8 @@ import java.util.concurrent.TimeUnit
  * Fetches the model list from the /models endpoint of an OpenAI-compatible API.
  * */
 object ModelListClient {
+
+    const val TAG = "ModelListClient"
 
     private val json = Json {
         isLenient = true
@@ -63,7 +66,9 @@ object ModelListClient {
      * @throws IOException on network or HTTP errors.
      * */
     suspend fun fetchTextModels(host: String, apiKey: String): List<String> = withContext(Dispatchers.IO) {
-        val url = if (host.endsWith("/")) host + "models" else "$host/models"
+        val url = modelsUrl(host)
+        Log.i(TAG, "GET $url (API key set: ${apiKey.isNotBlank()})")
+        val startedAt = System.currentTimeMillis()
 
         val request = Request.Builder()
             .url(url)
@@ -73,14 +78,29 @@ object ModelListClient {
 
         client.newCall(request).execute().use { response ->
             val body = response.body.string()
-            if (!response.isSuccessful) throw IOException("HTTP ${response.code}: $body")
+            Log.i(TAG, "HTTP ${response.code} from $url in ${System.currentTimeMillis() - startedAt} ms, ${body.length} chars")
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Error body: ${body.take(500)}")
+                throw IOException("HTTP ${response.code}: ${body.take(500)}")
+            }
 
-            val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonArray ?: return@use emptyList()
+            val data = json.parseToJsonElement(body).jsonObject["data"]?.jsonArray
+            if (data == null) {
+                Log.w(TAG, "Response has no \"data\" array: ${body.take(500)}")
+                return@use emptyList()
+            }
 
-            data.mapNotNull { (it.jsonObject["id"] as? JsonPrimitive)?.contentOrNull }
-                .filter { isTextModel(it) }
-                .distinct()
-                .sorted()
+            val ids = data.mapNotNull { (it.jsonObject["id"] as? JsonPrimitive)?.contentOrNull }
+            val textModels = ids.filter { isTextModel(it) }.distinct().sorted()
+            Log.i(TAG, "${ids.size} models returned, ${textModels.size} kept as text models")
+            textModels
         }
+    }
+
+    /**
+     * Build the /models URL for an API base URL.
+     * */
+    fun modelsUrl(host: String): String {
+        return if (host.endsWith("/")) host + "models" else "$host/models"
     }
 }

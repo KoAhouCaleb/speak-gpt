@@ -8,6 +8,10 @@ configurations {
     implementation.exclude group: 'org.jetbrains', module: 'annotations'
 }
 
+// CI passes -PfastBuild to skip R8, resource shrinking and lint vital on debug builds.
+// The APK is larger and keep-rule problems only show up in optimized builds.
+def fastBuild = project.hasProperty("fastBuild")
+
 android {
     namespace 'org.teslasoft.assistant'
     compileSdk = 37
@@ -46,11 +50,16 @@ android {
         debug {
             signingConfig signingConfigs.debug
             debuggable false
-            minifyEnabled true
-            shrinkResources true
+            minifyEnabled !fastBuild
+            shrinkResources !fastBuild
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             multiDexEnabled true
         }
+    }
+
+    lint {
+        // Lint vital runs on every non-debuggable build, including debug here
+        checkReleaseBuilds = !fastBuild
     }
 
     compileOptions {
