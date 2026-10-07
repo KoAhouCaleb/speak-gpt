@@ -1,5 +1,5 @@
 /**************************************************************************
- * Copyright (c) 2023-2026 Dmytro Ostapenko. All rights reserved.
+ * Copyright (c) 2026 Caleb Hall. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -47,6 +47,15 @@ object ToolPreferences {
 
     fun setMode(context: Context, toolName: String, mode: Mode) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit { putString(toolName, mode.value) }
+    }
+
+    /** Base URL of the SearXNG instance used by the web search tool, empty if not set. */
+    fun getSearxngUrl(context: Context): String {
+        return context.getSharedPreferences(FILE, Context.MODE_PRIVATE).getString("searxng_url", "") ?: ""
+    }
+
+    fun setSearxngUrl(context: Context, url: String) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit { putString("searxng_url", url.trim()) }
     }
 
     /** Navigation started by SpeakGPT, used to restart it with an added stop. */

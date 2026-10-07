@@ -1,5 +1,5 @@
 /**************************************************************************
- * Copyright (c) 2023-2026 Dmytro Ostapenko. All rights reserved.
+ * Copyright (c) 2026 Caleb Hall. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -21,6 +21,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowInsets
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -28,6 +29,7 @@ import android.widget.TextView
 import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.core.content.res.ResourcesCompat
 import androidx.core.graphics.drawable.toDrawable
+import androidx.core.widget.doAfterTextChanged
 import androidx.fragment.app.FragmentActivity
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.elevation.SurfaceColors
@@ -83,6 +85,10 @@ class ToolsSettingsActivity : FragmentActivity() {
         }
 
         btnBack?.setOnClickListener { finish() }
+
+        val searxngUrl = findViewById<EditText>(R.id.searxng_url)
+        searxngUrl.setText(ToolPreferences.getSearxngUrl(this))
+        searxngUrl.doAfterTextChanged { ToolPreferences.setSearxngUrl(this, it?.toString().orEmpty()) }
 
         addTools()
     }

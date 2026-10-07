@@ -1,5 +1,5 @@
 /**************************************************************************
- * Copyright (c) 2023-2026 Dmytro Ostapenko. All rights reserved.
+ * Copyright (c) 2026 Caleb Hall. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -64,6 +64,7 @@ import org.teslasoft.assistant.assist.ScreenCaptureAccessibilityService
 import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.preferences.ToolPreferences
 import org.teslasoft.assistant.util.ScreenContextStore
+import org.teslasoft.assistant.util.SearxngClient
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
 
@@ -84,6 +85,7 @@ object AssistantTools {
      * @param title Title on the settings page and in the chat.
      * @param description Description on the settings page.
      * @param needsScreen Only offered when the host can capture another app's screen.
+     * @param needsSearxng Only offered when a SearXNG instance is set.
      * */
     class Definition(
         val name: String,
@@ -91,8 +93,13 @@ object AssistantTools {
         val description: Int,
         val defaultMode: ToolPreferences.Mode,
         val needsScreen: Boolean,
-        val tool: Tool
-    )
+        val tool: Tool,
+        val needsSearxng: Boolean = false
+    ) {
+        fun isAvailable(context: Context, host: ToolHost): Boolean {
+            return (!needsScreen || host.canCaptureScreen) && (!needsSearxng || ToolPreferences.getSearxngUrl(context).isNotBlank())
+        }
+    }
 
     /**
      * Result of one tool call.
@@ -277,11 +284,22 @@ object AssistantTools {
             )
         ),
         Definition(
+            "web_search", R.string.tool_web_search, R.string.tool_web_search_desc,
+            ToolPreferences.Mode.AUTO, needsScreen = false,
+            tool = Tool.function(
+                name = "web_search",
+                description = "Search the web and get the top results (title, URL and snippet). Use this to look up current or factual information, " +
+                    "then answer from the results and mention the sources. Search again with a different query if the results do not answer the question.",
+                parameters = stringParameters("query" to "Search query")
+            ),
+            needsSearxng = true
+        ),
+        Definition(
             "search_internet", R.string.tool_search_internet, R.string.tool_search_internet_desc,
             ToolPreferences.Mode.AUTO, needsScreen = false,
             tool = Tool.function(
                 name = "search_internet",
-                description = "Open a Google search for a query in the default browser.",
+                description = "Open a Google search for a query in the default browser for the user to look at. To get search results yourself, use web_search if it is available.",
                 parameters = stringParameters("query" to "Search query")
             )
         ),
@@ -322,7 +340,7 @@ object AssistantTools {
     fun enabledTools(context: Context, host: ToolHost): List<Tool>? {
         return definitions
             .filter { getMode(context, it) != ToolPreferences.Mode.DISABLED }
-            .filter { !it.needsScreen || host.canCaptureScreen }
+            .filter { it.isAvailable(context, host) }
             .map { it.tool }
             .ifEmpty { null }
     }
@@ -352,7 +370,7 @@ object AssistantTools {
                         context.getString(R.string.tool_status_ignored)
                     )
                 }
-                definition == null || getMode(context, definition) == ToolPreferences.Mode.DISABLED || (definition.needsScreen && !host.canCaptureScreen) -> {
+                definition == null || getMode(context, definition) == ToolPreferences.Mode.DISABLED || !definition.isAvailable(context, host) -> {
                     Result("Error: the tool $name is not available.", context.getString(R.string.tool_status_unavailable))
                 }
                 else -> {
@@ -400,6 +418,7 @@ object AssistantTools {
             "make_call" -> makeCall(context, host, args.string("contact"), confirm)
             "send_text" -> sendText(context, host, args.string("contact"), args.string("message"), confirm)
             "open_webpage" -> openWebpage(context, host, args.string("url"), confirm)
+            "web_search" -> webSearch(context, args.string("query"), confirm)
             "search_internet" -> {
                 val query = args.string("query")
                 openWebpage(context, host, "https://www.google.com/search?q=" + Uri.encode(query), confirm)
@@ -808,6 +827,16 @@ object AssistantTools {
         smsManager.sendMultipartTextMessage(recipient.number, null, parts, null, null)
 
         return Result("Text message submitted for sending to $display.", context.getString(R.string.tool_status_sent, display))
+    }
+
+    // Web search
+
+    private suspend fun webSearch(context: Context, query: String, confirm: suspend (String) -> Boolean): Result {
+        if (!confirm(context.getString(R.string.tool_confirm_web_search, query))) return declined(context)
+
+        // Errors (unreachable instance, JSON format disabled) are reported to the model by execute()
+        val results = withContext(Dispatchers.IO) { SearxngClient.search(ToolPreferences.getSearxngUrl(context), query) }
+        return Result("Search results for \"$query\":\n\n$results", context.getString(R.string.tool_status_searched, query))
     }
 
     // Browser

@@ -562,6 +562,8 @@
     <string name="tile_tools_desc">Choose which tools the assistant can use and whether it must ask first. Tools are used when function calling is on.</string>
     <string name="tools_settings_hint">Disable: the assistant can not use the tool. Confirm: you are asked every time. Auto: the tool runs without asking. Tool calls are ignored while SpeakGPT is not in the foreground.</string>
     <string name="tools_screen_hint">Screen tools only work in the assistant overlay and need the "SpeakGPT screen context" accessibility service (Android 11 or newer).</string>
+    <string name="tools_searxng_url">SearXNG instance URL</string>
+    <string name="tools_searxng_url_helper">For example https://search.example.com. Enables the web search tool. The instance must allow the json format (search.formats in settings.yml).</string>
     <string name="tool_mode_disabled">Disable</string>
     <string name="tool_mode_confirm">Confirm</string>
     <string name="tool_mode_auto">Auto</string>
@@ -589,6 +591,8 @@
     <string name="tool_send_text_desc">Sends an SMS to a contact or a phone number. Needs the contacts and SMS permissions.</string>
     <string name="tool_open_webpage">Open web page</string>
     <string name="tool_open_webpage_desc">Opens a web page in the default browser.</string>
+    <string name="tool_web_search">Web search</string>
+    <string name="tool_web_search_desc">Searches the web with your SearXNG instance and sends the top results to the model. Only available when a SearXNG URL is set above.</string>
     <string name="tool_search_internet">Search the Internet</string>
     <string name="tool_search_internet_desc">Opens a Google search in the default browser.</string>
     <string name="tool_generate_image">Generate image</string>
@@ -606,6 +610,7 @@
 
 %2$s</string>
     <string name="tool_confirm_webpage">Open %1$s?</string>
+    <string name="tool_confirm_web_search">Search the web for: %1$s?</string>
     <string name="tool_confirm_generate_image">Generate an image of: %1$s?</string>
 
     <string name="tool_status_done">done</string>
@@ -623,4 +628,5 @@
     <string name="tool_status_opened">opened %1$s</string>
     <string name="tool_status_calling">calling %1$s</string>
     <string name="tool_status_sent">sent to %1$s</string>
+    <string name="tool_status_searched">searched for \"%1$s\"</string>
 </resources>
