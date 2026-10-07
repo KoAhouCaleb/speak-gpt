@@ -6,6 +6,7 @@ on:
       - main
       - claude/app-feature-additions-4ltaoq
       - ccr-7583d52e-csqybl
+      - ccr-69a528d0-04tgks
       - claude/tool-calling-implementation-2syg9t
       - claude/tts-streaming-queue-a6fo7v
   workflow_dispatch:
