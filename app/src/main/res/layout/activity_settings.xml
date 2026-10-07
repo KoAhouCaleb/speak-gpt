@@ -445,6 +445,7 @@
                 </LinearLayout>
 
                 <LinearLayout
+                    android:id="@+id/linearLayoutSpeechServers"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="12dp"
@@ -456,6 +457,35 @@
                     app:layout_constraintEnd_toEndOf="parent"
                     app:layout_constraintStart_toStartOf="parent"
                     app:layout_constraintTop_toBottomOf="@+id/linearLayout13">
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:id="@+id/tile_speech_server_tts"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginHorizontal="4dp"
+                        android:layout_weight="1" />
+
+                    <androidx.constraintlayout.widget.ConstraintLayout
+                        android:id="@+id/tile_speech_server_stt"
+                        android:layout_width="0dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginHorizontal="4dp"
+                        android:layout_weight="1" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginEnd="12dp"
+                    android:baselineAligned="false"
+                    android:orientation="horizontal"
+                    android:weightSum="2"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@+id/linearLayoutSpeechServers">
 
                     <androidx.constraintlayout.widget.ConstraintLayout
                         android:id="@+id/tile_silent_mode"
@@ -615,7 +645,7 @@
                         android:layout_weight="1" />
 
                     <androidx.constraintlayout.widget.ConstraintLayout
-                        android:id="@+id/tile_empty_11"
+                        android:id="@+id/tile_show_reasoning"
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_marginHorizontal="4dp"
@@ -755,7 +785,7 @@
                         android:layout_weight="1" />
 
                     <androidx.constraintlayout.widget.ConstraintLayout
-                        android:id="@+id/tile_empty_9"
+                        android:id="@+id/tile_auto_attach_screen"
                         android:layout_width="0dp"
                         android:layout_height="match_parent"
                         android:layout_marginHorizontal="4dp"

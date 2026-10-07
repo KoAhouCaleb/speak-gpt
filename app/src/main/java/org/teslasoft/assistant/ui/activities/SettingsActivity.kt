@@ -53,6 +53,7 @@ import org.teslasoft.assistant.preferences.DeviceInfoProvider
 import org.teslasoft.assistant.preferences.GlobalPreferences
 import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.preferences.Preferences
+import org.teslasoft.assistant.preferences.SpeechServerPreferences
 import org.teslasoft.assistant.preferences.dto.ApiEndpointObject
 import org.teslasoft.assistant.ui.fragments.TileFragment
 import org.teslasoft.assistant.ui.fragments.dialogs.ActivationPromptDialogFragment
@@ -62,6 +63,7 @@ import org.teslasoft.assistant.ui.fragments.dialogs.LanguageSelectorDialogFragme
 import org.teslasoft.assistant.ui.fragments.dialogs.SelectImageModelFragment
 import org.teslasoft.assistant.ui.fragments.dialogs.SelectResolutionFragment
 import org.teslasoft.assistant.ui.fragments.dialogs.SystemMessageDialogFragment
+import org.teslasoft.assistant.ui.fragments.dialogs.SpeechServerDialogFragment
 import org.teslasoft.assistant.ui.fragments.dialogs.VoiceSelectorDialogFragment
 import org.teslasoft.assistant.util.WindowInsetsUtil
 import org.teslasoft.core.auth.AccountSyncListener
@@ -88,6 +90,10 @@ class SettingsActivity : FragmentActivity() {
     private var tileImageResolution: TileFragment? = null
     private var tileTTS: TileFragment? = null
     private var tileSTT: TileFragment? = null
+    private var tileSpeechServerTTS: TileFragment? = null
+    private var tileSpeechServerSTT: TileFragment? = null
+    private var tileShowReasoning: TileFragment? = null
+    private var tileAutoAttachScreen: TileFragment? = null
     private var tileSilentMode: TileFragment? = null
     private var tileAlwaysSpeak: TileFragment? = null
     private var tileTextModel: TileFragment? = null
@@ -320,6 +326,10 @@ class SettingsActivity : FragmentActivity() {
         transition.excludeTarget(R.id.tile_image_resolution, true)
         transition.excludeTarget(R.id.tile_tts, true)
         transition.excludeTarget(R.id.tile_stt, true)
+        transition.excludeTarget(R.id.tile_speech_server_tts, true)
+        transition.excludeTarget(R.id.tile_speech_server_stt, true)
+        transition.excludeTarget(R.id.tile_show_reasoning, true)
+        transition.excludeTarget(R.id.tile_auto_attach_screen, true)
         transition.excludeTarget(R.id.tile_silent_mode, true)
         transition.excludeTarget(R.id.tile_always_speak, true)
         transition.excludeTarget(R.id.tile_text_model, true)
@@ -384,6 +394,10 @@ class SettingsActivity : FragmentActivity() {
         transition2.excludeTarget(R.id.tile_image_resolution, true)
         transition2.excludeTarget(R.id.tile_tts, true)
         transition2.excludeTarget(R.id.tile_stt, true)
+        transition2.excludeTarget(R.id.tile_speech_server_tts, true)
+        transition2.excludeTarget(R.id.tile_speech_server_stt, true)
+        transition2.excludeTarget(R.id.tile_show_reasoning, true)
+        transition2.excludeTarget(R.id.tile_auto_attach_screen, true)
         transition2.excludeTarget(R.id.tile_silent_mode, true)
         transition2.excludeTarget(R.id.tile_always_speak, true)
         transition2.excludeTarget(R.id.tile_text_model, true)
@@ -672,6 +686,32 @@ class SettingsActivity : FragmentActivity() {
                 chatId,
                 getString(R.string.tile_stt_desc)
             )
+
+            tileSpeechServerTTS = TileFragment.newInstance(
+                checked = false,
+                checkable = false,
+                enabledText = getString(R.string.label_speech_server_tts),
+                disabledText = null,
+                enabledDesc = speechServerSubtitle(SpeechServerPreferences.TYPE_TTS),
+                disabledDesc = null,
+                icon = R.drawable.ic_tts,
+                disabled = false,
+                chatId = chatId,
+                functionDesc = getString(R.string.tile_speech_server_tts_desc)
+            )
+
+            tileSpeechServerSTT = TileFragment.newInstance(
+                checked = false,
+                checkable = false,
+                enabledText = getString(R.string.label_speech_server_stt),
+                disabledText = null,
+                enabledDesc = speechServerSubtitle(SpeechServerPreferences.TYPE_STT),
+                disabledDesc = null,
+                icon = R.drawable.ic_microphone,
+                disabled = false,
+                chatId = chatId,
+                functionDesc = getString(R.string.tile_speech_server_stt_desc)
+            )
         }
 
         t2.start()
@@ -830,6 +870,19 @@ class SettingsActivity : FragmentActivity() {
                 false,
                 chatId,
                 "This feature allows you to enable monochrome background for chat list."
+            )
+
+            tileShowReasoning = TileFragment.newInstance(
+                preferences?.getShowReasoning() == true,
+                true,
+                getString(R.string.tile_show_reasoning_title),
+                null,
+                getString(R.string.on),
+                getString(R.string.off),
+                R.drawable.ic_experiment,
+                false,
+                chatId,
+                getString(R.string.tile_show_reasoning_desc)
             )
         }
 
@@ -1055,10 +1108,28 @@ class SettingsActivity : FragmentActivity() {
                 chatId,
                 getString(R.string.tile_show_chat_errors_desc)
             )
+
+            tileAutoAttachScreen = TileFragment.newInstance(
+                preferences?.getAutoAttachScreen() == true,
+                true,
+                getString(R.string.tile_attach_screen_title),
+                null,
+                getString(R.string.on),
+                getString(R.string.off),
+                R.drawable.ic_experiment,
+                false,
+                chatId,
+                getString(R.string.tile_attach_screen_desc)
+            )
         }
 
         t7.start()
         t7.join()
+    }
+
+    private fun speechServerSubtitle(type: String) : String {
+        val config = SpeechServerPreferences.getSpeechServerPreferences(this).getConfig(type)
+        return if (config.enabled && config.host.isNotBlank()) config.host else getString(R.string.off)
     }
 
     private fun placeFragments() : FragmentTransaction {
@@ -1072,6 +1143,10 @@ class SettingsActivity : FragmentActivity() {
             .replace(R.id.tile_image_resolution, tileImageResolution!!)
             .replace(R.id.tile_tts, tileTTS!!)
             .replace(R.id.tile_stt, tileSTT!!)
+            .replace(R.id.tile_speech_server_tts, tileSpeechServerTTS!!)
+            .replace(R.id.tile_speech_server_stt, tileSpeechServerSTT!!)
+            .replace(R.id.tile_show_reasoning, tileShowReasoning!!)
+            .replace(R.id.tile_auto_attach_screen, tileAutoAttachScreen!!)
             .replace(R.id.tile_silent_mode, tileSilentMode!!)
             .replace(R.id.tile_always_speak, tileAlwaysSpeak!!)
             .replace(R.id.tile_text_model, tileTextModel!!)
@@ -1423,6 +1498,26 @@ class SettingsActivity : FragmentActivity() {
 
         tileEventLog?.setOnTileClickListener {
             startActivity(Intent(this, LogsActivity::class.java).putExtra("type", "event").putExtra("chatId", chatId))
+        }
+
+        tileSpeechServerTTS?.setOnTileClickListener {
+            val dialog = SpeechServerDialogFragment.newInstance(SpeechServerPreferences.TYPE_TTS)
+            dialog.setOnSavedListener { type, _ -> tileSpeechServerTTS?.updateSubtitle(speechServerSubtitle(type)) }
+            dialog.show(supportFragmentManager.beginTransaction(), "SpeechServerDialogFragment")
+        }
+
+        tileSpeechServerSTT?.setOnTileClickListener {
+            val dialog = SpeechServerDialogFragment.newInstance(SpeechServerPreferences.TYPE_STT)
+            dialog.setOnSavedListener { type, _ -> tileSpeechServerSTT?.updateSubtitle(speechServerSubtitle(type)) }
+            dialog.show(supportFragmentManager.beginTransaction(), "SpeechServerDialogFragment")
+        }
+
+        tileShowReasoning?.setOnCheckedChangeListener { isChecked ->
+            preferences?.setShowReasoning(isChecked)
+        }
+
+        tileAutoAttachScreen?.setOnCheckedChangeListener { isChecked ->
+            preferences?.setAutoAttachScreen(isChecked)
         }
 
         tileShowChatErrors?.setOnCheckedChangeListener { isChecked ->

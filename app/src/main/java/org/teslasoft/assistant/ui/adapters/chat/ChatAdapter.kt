@@ -77,6 +77,7 @@ import java.io.FileInputStream
 import java.io.InputStreamReader
 import java.util.Base64
 import java.util.Collections
+import java.util.IdentityHashMap
 import androidx.core.graphics.createBitmap
 import androidx.core.net.toUri
 import androidx.core.content.edit
@@ -90,6 +91,7 @@ class ChatAdapter(private val dataArray: ArrayList<HashMap<String, Any>>, privat
     private var imageStringList = ArrayList<String>(Collections.nCopies(itemCount + 1, ""))
     private var listener: OnUpdateListener? = null
     private var bulkActionMode = false
+    private val expandedReasoning: MutableSet<HashMap<String, Any>> = Collections.newSetFromMap(IdentityHashMap())
 
     companion object {
         private const val TYPE_USER = 0
@@ -197,6 +199,7 @@ class ChatAdapter(private val dataArray: ArrayList<HashMap<String, Any>>, privat
         private val btnRetry: ImageButton = itemView.findViewById(R.id.btn_retry)
         private val btnReport: ImageButton = itemView.findViewById(R.id.btn_report)
         private val btnShare: ImageButton = itemView.findViewById(R.id.btn_share)
+        private val reasoning: TextView? = itemView.findViewById(R.id.reasoning)
 
         @SuppressLint("SetTextI18n", "SetJavaScriptEnabled")
         open fun bind(chatMessage: HashMap<String, Any>, position: Int) {
@@ -205,6 +208,7 @@ class ChatAdapter(private val dataArray: ArrayList<HashMap<String, Any>>, privat
             updateRetryButton(chatMessage, position)
             updateReportButton(chatMessage)
             updateShareButton(chatMessage)
+            updateReasoning(chatMessage)
 
             if (selectorProjection[position]["selected"].toString() == "true") {
                 ui.setBackgroundColor(getSurface3Color(context))
@@ -289,6 +293,45 @@ class ChatAdapter(private val dataArray: ArrayList<HashMap<String, Any>>, privat
                 }
 
                 message.visibility = View.VISIBLE
+            }
+        }
+
+        private fun updateReasoning(chatMessage: HashMap<String, Any>) {
+            val reasoningView = reasoning ?: return
+            val text = chatMessage["reasoning"]?.toString()?.trim() ?: ""
+
+            if (chatMessage["isBot"] != true || text.isEmpty() || !preferences.getShowReasoning()) {
+                reasoningView.visibility = View.GONE
+                return
+            }
+
+            reasoningView.visibility = View.VISIBLE
+
+            if (isDarkThemeEnabled() && preferences.getAmoledPitchBlack() && (preferences.getLayout() == "bubbles" || isAssistant)) {
+                reasoningView.setTextColor(ResourcesCompat.getColor(context.resources, R.color.white, null))
+            }
+
+            val isAnswerEmpty = chatMessage["message"]?.toString()?.isBlank() ?: true
+
+            reasoningView.text = if (expandedReasoning.contains(chatMessage)) {
+                context.getString(R.string.label_reasoning_expanded) + "\n\n" + text
+            } else if (isAnswerEmpty) {
+                // Live preview of the latest reasoning while the answer has not started yet
+                context.getString(R.string.label_reasoning_thinking) + "\n" + (if (text.length > 300) "…" + text.takeLast(300) else text)
+            } else {
+                context.getString(R.string.label_reasoning_collapsed)
+            }
+
+            reasoningView.setOnClickListener {
+                if (bulkActionMode) return@setOnClickListener
+
+                if (expandedReasoning.contains(chatMessage)) {
+                    expandedReasoning.remove(chatMessage)
+                } else {
+                    expandedReasoning.add(chatMessage)
+                }
+
+                updateReasoning(chatMessage)
             }
         }
 

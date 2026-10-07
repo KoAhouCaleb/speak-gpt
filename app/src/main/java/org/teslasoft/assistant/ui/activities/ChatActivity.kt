@@ -162,6 +162,7 @@ import org.teslasoft.assistant.preferences.ChatPreferences
 import org.teslasoft.assistant.preferences.GlobalPreferences
 import org.teslasoft.assistant.preferences.LogitBiasPreferences
 import org.teslasoft.assistant.preferences.Preferences
+import org.teslasoft.assistant.preferences.SpeechServerPreferences
 import org.teslasoft.assistant.preferences.dto.ApiEndpointObject
 import org.teslasoft.assistant.theme.ThemeManager
 import org.teslasoft.assistant.ui.adapters.chat.ChatAdapter
@@ -170,6 +171,8 @@ import org.teslasoft.assistant.ui.fragments.dialogs.QuickSettingsBottomSheetDial
 import org.teslasoft.assistant.ui.onboarding.WelcomeActivity
 import org.teslasoft.assistant.ui.permission.CameraPermissionActivity
 import org.teslasoft.assistant.ui.permission.MicrophonePermissionActivity
+import org.teslasoft.assistant.util.ChatStreamClient
+import org.teslasoft.assistant.util.SpeechServerClient
 import org.teslasoft.assistant.util.Hash
 import org.teslasoft.assistant.util.LocaleParser
 import org.teslasoft.assistant.util.WindowInsetsUtil
@@ -1274,7 +1277,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
     private fun initLogic() {
         btnMicro?.setOnClickListener {
-            if (preferences!!.getAudioModel() == "google") {
+            if (useGoogleStt()) {
                 handleGoogleSpeechRecognition()
             } else {
                 handleWhisperSpeechRecognition()
@@ -1294,7 +1297,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     tts!!.stop()
                 } catch (_: java.lang.Exception) {/* ignored */}
                 btnMicro?.setImageResource(R.drawable.ic_microphone)
-                if (preferences!!.getAudioModel() == "google") recognizer?.stopListening()
+                if (useGoogleStt()) recognizer?.stopListening()
                 isRecording = false
             }
 
@@ -1429,7 +1432,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
     }
 
     private fun startWhisper() {
-        if (openAIKey == null) {
+        if (openAIKey == null && !isSpeechServerSttEnabled()) {
             openAIMissing("whisper", "")
         } else if (Build.VERSION.SDK_INT >= 31) {
             recorder = MediaRecorder(this).apply {
@@ -1535,14 +1538,20 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
     private suspend fun processRecording() {
         try {
-            val transcriptionRequest = TranscriptionRequest(
-                audio = FileSource(
-                    path = "${externalCacheDir?.absolutePath}/tmp.m4a".toPath(),
-                    fileSystem = FileSystem.SYSTEM
-                ),
-                model = ModelId("whisper-1"),
-            )
-            val transcription = openAIAI?.transcription(transcriptionRequest)!!.text
+            val transcription = if (isSpeechServerSttEnabled()) {
+                val sttConfig = SpeechServerPreferences.getSpeechServerPreferences(this).getConfig(SpeechServerPreferences.TYPE_STT)
+                val audioFile = File("${externalCacheDir?.absolutePath}/tmp.m4a")
+                withContext(Dispatchers.IO) { SpeechServerClient.transcribe(sttConfig, audioFile) }
+            } else {
+                val transcriptionRequest = TranscriptionRequest(
+                    audio = FileSource(
+                        path = "${externalCacheDir?.absolutePath}/tmp.m4a".toPath(),
+                        fileSystem = FileSystem.SYSTEM
+                    ),
+                    model = ModelId("whisper-1"),
+                )
+                openAIAI?.transcription(transcriptionRequest)!!.text
+            }
 
             if (transcription.trim() == "") {
                 isRecording = false
@@ -1586,8 +1595,8 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     messageInput?.setText(transcription)
                 }
             }
-        } catch (_: Exception) {
-            Toast.makeText(this, "Failed to record audio", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Failed to record audio" + (if (isSpeechServerSttEnabled()) ": ${e.message}" else ""), Toast.LENGTH_SHORT).show()
             btnMicro?.isEnabled = true
             btnSend?.isEnabled = true
             progress?.visibility = View.GONE
@@ -1996,7 +2005,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 reqList.add(ImagePart(baseImageString!!))
                 val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
                     ChatCompletionRequest(
-                        model = ModelId("gpt-4o"),
+                        model = ModelId(model),
                         temperature = if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
                         topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
                         frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
@@ -2016,7 +2025,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     )
                 } else {
                     ChatCompletionRequest(
-                        model = ModelId("gpt-4o"),
+                        model = ModelId(model),
                         temperature = if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
                         topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
                         frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
@@ -2035,15 +2044,22 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     )
                 }
 
-                val completions: Flow<ChatCompletionChunk> = ai!!.chatCompletions(chatCompletionRequest)
+                val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+                var rawResponse = ""
+                var rawReasoning = ""
 
                 scroll(true)
 
                 completions.flowOn(Dispatchers.IO).collect { v ->
                     run {
                         if (!currentCoroutineContext().isActive) throw CancellationException()
-                        else if (v.choices.isNotEmpty() && v.choices[0].delta != null && v.choices[0].delta?.content != null && v.choices[0].delta?.content.toString() != "null") {
-                            response += v.choices[0].delta?.content
+                        else if (v.content != null || v.reasoning != null) {
+                            rawResponse += v.content ?: ""
+                            rawReasoning += v.reasoning ?: ""
+                            val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                            response = parsed.second
+                            val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                            if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                             if (response != "null") {
                                 messages[messages.size - 1]["message"] = response
                                 if (messages.size > 2) {
@@ -2375,16 +2391,22 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
             )
         }
 
-        val completions: Flow<ChatCompletionChunk> =
-            ai!!.chatCompletions(chatCompletionRequest)
+        val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+        var rawResponse = ""
+        var rawReasoning = ""
 
         scroll(true)
 
         completions.flowOn(Dispatchers.IO).collect { v ->
             run {
                 if (!currentCoroutineContext().isActive) throw CancellationException()
-                else if (v.choices.isNotEmpty() && v.choices[0].delta != null && v.choices[0].delta?.content != null && v.choices[0].delta?.content.toString() != "null") {
-                    response += v.choices[0].delta?.content
+                else if (v.content != null || v.reasoning != null) {
+                    rawResponse += v.content ?: ""
+                    rawReasoning += v.reasoning ?: ""
+                    val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                    response = parsed.second
+                    val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                    if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                     messages[messages.size - 1]["message"] = response
                     if (messages.size > 2) {
                         adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -2551,8 +2573,45 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
         }
     }
 
+    private fun isSpeechServerSttEnabled(): Boolean {
+        return SpeechServerPreferences.getSpeechServerPreferences(this).isSttEnabled()
+    }
+
+    private fun useGoogleStt(): Boolean {
+        return preferences!!.getAudioModel() == "google" && !isSpeechServerSttEnabled()
+    }
+
+    private fun speakWithSpeechServer(message: String) {
+        val config = SpeechServerPreferences.getSpeechServerPreferences(this).getConfig(SpeechServerPreferences.TYPE_TTS)
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val rawAudio = withContext(Dispatchers.IO) { SpeechServerClient.speech(config, message) }
+
+                val tempMp3 = File.createTempFile("audio", "mp3", cacheDir)
+                tempMp3.deleteOnExit()
+                FileOutputStream(tempMp3).use { it.write(rawAudio) }
+
+                mediaPlayer?.reset()
+
+                FileInputStream(tempMp3).use { fis ->
+                    mediaPlayer?.setDataSource(fis.fd)
+                    mediaPlayer?.prepare()
+                }
+
+                mediaPlayer?.start()
+            } catch (_: CancellationException) {
+                /* ignored */
+            } catch (e: Exception) {
+                Toast.makeText(this@ChatActivity, getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun speak(message: String) {
-        if (preferences!!.getTtsEngine() == "google") {
+        if (SpeechServerPreferences.getSpeechServerPreferences(this).isTtsEnabled()) {
+            speakWithSpeechServer(message)
+        } else if (preferences!!.getTtsEngine() == "google") {
             tts!!.speak(message, TextToSpeech.QUEUE_FLUSH, null, "")
         } else {
             if (openAIKey == null) {

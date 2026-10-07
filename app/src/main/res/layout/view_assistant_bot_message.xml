@@ -58,6 +58,24 @@
             android:background="@drawable/bubble_in">
 
             <TextView
+                android:id="@+id/reasoning"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:alpha="0.7"
+                android:background="?attr/selectableItemBackground"
+                android:minWidth="50dp"
+                android:paddingStart="12dp"
+                android:paddingTop="8dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="0dp"
+                android:textColor="@color/accent_900"
+                android:textSize="13sp"
+                android:textStyle="italic"
+                android:visibility="gone"
+                app:layout_constraintStart_toStartOf="parent"
+                app:layout_constraintTop_toTopOf="parent" />
+
+            <TextView
                 android:id="@+id/message"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -70,7 +88,7 @@
                 android:textIsSelectable="true"
                 android:textSize="16sp"
                 app:layout_constraintStart_toStartOf="parent"
-                app:layout_constraintTop_toTopOf="parent" />
+                app:layout_constraintTop_toBottomOf="@+id/reasoning" />
 
             <LinearLayout
                 android:id="@+id/image_frame"
