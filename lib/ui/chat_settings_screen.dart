@@ -7,9 +7,10 @@ import '../services/model_list_client.dart';
 import '../services/storage.dart';
 
 class ChatSettingsScreen extends StatefulWidget {
-  const ChatSettingsScreen({super.key, required this.chat});
+  const ChatSettingsScreen({super.key, this.chat});
 
-  final ChatInfo chat;
+  /// The chat to edit, or null to edit the defaults copied into new chats.
+  final ChatInfo? chat;
 
   @override
   State<ChatSettingsScreen> createState() => _ChatSettingsScreenState();
@@ -29,7 +30,9 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   void initState() {
     super.initState();
     _storage = context.read<Storage>();
-    _s = _storage.chatSettings(widget.chat.id);
+    _s = widget.chat == null
+        ? _storage.defaultChatSettings
+        : _storage.chatSettings(widget.chat!.id);
     _model = TextEditingController(text: _s.model);
     _system = TextEditingController(text: _s.systemMessage);
     _name = TextEditingController(text: _s.assistantName);
@@ -53,7 +56,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ..assistantName = _name.text.trim().isEmpty ? 'Grace' : _name.text.trim()
       ..seed = _seed.text.trim()
       ..maxTokens = int.tryParse(_maxTokens.text.trim()) ?? _s.maxTokens;
-    _storage.saveChatSettings(widget.chat.id, _s);
+    if (widget.chat == null) {
+      _storage.saveDefaultChatSettings(_s);
+    } else {
+      _storage.saveChatSettings(widget.chat!.id, _s);
+    }
   }
 
   Future<void> _pickModel() async {
@@ -104,7 +111,11 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
         : null;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Chat settings')),
+      appBar: AppBar(
+        title: Text(
+          widget.chat == null ? 'Default chat settings' : 'Chat settings',
+        ),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [

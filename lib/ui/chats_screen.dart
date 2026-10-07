@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
+import '../services/native_bridge.dart';
 import '../services/storage.dart';
 import 'chat_screen.dart';
 import 'dialogs.dart';
@@ -144,8 +145,10 @@ class _ChatTile extends StatelessWidget {
   }
 }
 
-void openChat(BuildContext context, ChatInfo chat) {
-  Navigator.of(
-    context,
-  ).push(MaterialPageRoute<void>(builder: (_) => ChatScreen(chat: chat)));
+void openChat(BuildContext context, ChatInfo chat, {AssistContext? assist}) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ChatScreen(chat: chat, assist: assist),
+    ),
+  );
 }

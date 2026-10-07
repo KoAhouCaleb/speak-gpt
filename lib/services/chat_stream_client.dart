@@ -5,10 +5,85 @@ import 'package:http/http.dart' as http;
 
 /// A single streamed delta.
 class Delta {
-  const Delta({this.content, this.reasoning});
+  const Delta({this.content, this.reasoning, this.toolCalls = const []});
 
   final String? content;
   final String? reasoning;
+  final List<ToolCallDelta> toolCalls;
+}
+
+/// Fragment of a streamed tool call. The id and name usually arrive in the first
+/// fragment, the arguments are split across many fragments with the same index.
+class ToolCallDelta {
+  const ToolCallDelta({
+    required this.index,
+    this.id,
+    this.name,
+    this.arguments,
+  });
+
+  final int index;
+  final String? id;
+  final String? name;
+  final String? arguments;
+}
+
+class ToolCall {
+  const ToolCall({
+    required this.id,
+    required this.name,
+    required this.arguments,
+  });
+
+  final String id;
+  final String name;
+
+  /// Raw JSON text of the arguments.
+  final String arguments;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'type': 'function',
+    'function': {'name': name, 'arguments': arguments},
+  };
+}
+
+/// Joins streamed tool call fragments into complete tool calls.
+class ToolCallAccumulator {
+  final Map<int, _Partial> _partials = {};
+
+  void add(List<ToolCallDelta> deltas) {
+    for (final d in deltas) {
+      final p = _partials.putIfAbsent(d.index, _Partial.new);
+      if (d.id != null && d.id!.isNotEmpty) p.id = d.id;
+      if (d.name != null && d.name!.isNotEmpty) p.name = d.name;
+      if (d.arguments != null) p.arguments.write(d.arguments);
+    }
+  }
+
+  bool get isEmpty => _partials.values.every((p) => p.name == null);
+
+  List<ToolCall> build() {
+    final keys = _partials.keys.toList()..sort();
+    return [
+      for (final k in keys)
+        if (_partials[k]!.name != null)
+          ToolCall(
+            // Some servers omit the id
+            id: _partials[k]!.id ?? 'call_$k',
+            name: _partials[k]!.name!,
+            arguments: _partials[k]!.arguments.isEmpty
+                ? '{}'
+                : _partials[k]!.arguments.toString(),
+          ),
+    ];
+  }
+}
+
+class _Partial {
+  String? id;
+  String? name;
+  final StringBuffer arguments = StringBuffer();
 }
 
 class ApiException implements Exception {
@@ -107,11 +182,42 @@ class ChatStreamClient {
       }
     }
 
+    final toolCalls = _parseToolCalls(delta['tool_calls']);
+
     if ((content == null || content.isEmpty) &&
-        (reasoning == null || reasoning.isEmpty)) {
+        (reasoning == null || reasoning.isEmpty) &&
+        toolCalls.isEmpty) {
       return null;
     }
-    return Delta(content: content, reasoning: reasoning);
+    return Delta(content: content, reasoning: reasoning, toolCalls: toolCalls);
+  }
+
+  static List<ToolCallDelta> _parseToolCalls(dynamic element) {
+    if (element is! List) return const [];
+    final result = <ToolCallDelta>[];
+    for (var position = 0; position < element.length; position++) {
+      final call = element[position];
+      if (call is! Map) continue;
+      final function = call['function'];
+      final args = function is Map ? function['arguments'] : null;
+      result.add(
+        ToolCallDelta(
+          // Some servers send complete tool calls without an index
+          index: call['index'] is num
+              ? (call['index'] as num).toInt()
+              : position,
+          id: call['id'] is String ? call['id'] as String : null,
+          name: function is Map && function['name'] is String
+              ? function['name'] as String
+              : null,
+          // A few servers send the arguments as an object instead of a string
+          arguments: args is String
+              ? args
+              : (args is Map ? jsonEncode(args) : null),
+        ),
+      );
+    }
+    return result;
   }
 
   /// Some servers put reasoning inline in content wrapped in `<think>...</think>`.

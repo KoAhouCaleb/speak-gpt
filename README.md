@@ -15,9 +15,25 @@ Grace (formerly SpeakGPT) is an advanced and highly intuitive open-source AI ass
 
 This branch is a Flutter port of the original native Android app. The application id is `com.grace.assistant` and the app name is Grace.
 
-Ported: chat list (create, rename, pin, delete), streaming chat with reasoning display (`reasoning_content`, `reasoning`, `reasoning_text`, `thinking` fields and inline `<think>` blocks), Markdown rendering, message edit/copy/delete/regenerate, per-chat model and sampling settings, API endpoint management with keys kept in secure storage, model list loading from `/models`, the preset list in `assets/ai_sets.json`, light/dark/AMOLED themes.
+Ported:
 
-Not ported yet: voice input and text-to-speech, the system assistant overlay and screen capture, tool calling, image generation and editing, logit bias sets, the prompts library and the ad/support flows.
+- Chats: create, rename, pin, delete, share as text; streaming answers with reasoning display (`reasoning_content`, `reasoning`, `reasoning_text`, `thinking` and inline `<think>` blocks); Markdown; edit, copy, read aloud, delete and regenerate.
+- Per-chat and default settings: endpoint, model (loaded from `/models`), system message, temperature, top-p, penalties, seed, max tokens, logit bias sets.
+- API endpoints with keys in secure storage, presets from `assets/ai_sets.json`, prompts library, image library.
+- Vision: attach pictures from the gallery or camera.
+- Image generation with `/imagine <description>`.
+- Voice: dictation (speech_to_text) and reading answers aloud (flutter_tts).
+- Tools (function calling), each off, ask-each-time or allowed: date and time, read screen, list and open apps, navigation with stops, music search, call and text (contact lookup), open web page, browser search, internet search through SearXNG, image generation.
+- Digital assistant: see below.
+- Light, dark and AMOLED themes.
+
+Not ported: the old floating assistant overlay, QR code reading, ads and support flows, and the translated strings (the UI is English only for now).
+
+### Assistant (screen context without accessibility)
+
+The accessibility service from the native app is gone. Grace registers as a digital assistant (`VoiceInteractionService` in `android/app/src/main/kotlin/com/grace/assistant/assist/`). When the user invokes the assistant gesture, `GraceSession` receives the screen text (`AssistStructure`) and a screenshot from the system, saves them to the cache and opens Grace with a new chat that has them attached.
+
+To use it: Android settings, Default apps, Digital assistant app, choose Grace, and turn on "Use text from screen" and "Use screenshot". Apps that block screen capture (`FLAG_SECURE`) and password fields are not readable. The session only waits for the data that the system announces in the invocation flags and does not try to force a second request.
 
 ## Build
 

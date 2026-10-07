@@ -1,18 +1,30 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../models/models.dart';
 import '../services/chat_session.dart';
+import '../services/native_bridge.dart';
+import '../services/speech_service.dart';
 import '../services/storage.dart';
+import '../services/tools.dart';
+import '../util.dart';
 import 'chat_settings_screen.dart';
 import 'dialogs.dart';
+import 'image_viewer.dart';
 
 class ChatScreen extends StatefulWidget {
-  const ChatScreen({super.key, required this.chat});
+  const ChatScreen({super.key, required this.chat, this.assist});
 
   final ChatInfo chat;
+
+  /// Screen content captured when the chat was opened through the assistant gesture.
+  final AssistContext? assist;
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -20,20 +32,42 @@ class ChatScreen extends StatefulWidget {
 
 class _ChatScreenState extends State<ChatScreen> {
   late final ChatSession _session;
+  late final Storage _storage;
+  final _speech = SpeechService();
   final _input = TextEditingController();
   final _scroll = ScrollController();
+
+  String _attachedImage = '';
+  bool _attachScreenText = false;
+  bool _attachScreenshot = false;
+  bool _listening = false;
+  String _dictationBase = '';
 
   @override
   void initState() {
     super.initState();
-    _session = ChatSession(context.read<Storage>(), widget.chat.id)
-      ..addListener(_onChange);
+    _storage = context.read<Storage>();
+    _session = ChatSession(_storage, widget.chat.id)
+      ..addListener(_onChange)
+      ..confirmTool = _confirmTool
+      ..onAnswer = (text) {
+        if (_storage.speakReplies) {
+          _speech.speak(text, locale: _storage.speechLocale);
+        }
+      };
+
+    final assist = widget.assist;
+    if (assist != null && _storage.autoAttachScreen) {
+      _attachScreenText = assist.text.trim().isNotEmpty;
+      _attachScreenshot = assist.screenshotPath.isNotEmpty;
+    }
   }
 
   @override
   void dispose() {
     _session.removeListener(_onChange);
     _session.dispose();
+    _speech.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -51,11 +85,165 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
-  void _send() {
+  Future<bool> _confirmTool(
+    AssistantTool tool,
+    Map<String, dynamic> args,
+  ) async {
+    if (!mounted) return false;
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Allow this action?'),
+        content: Text(tool.describeCall(args)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Deny'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Allow'),
+          ),
+        ],
+      ),
+    );
+    return ok ?? false;
+  }
+
+  Future<void> _send() async {
+    if (_listening) await _stopListening();
     final text = _input.text;
-    if (text.trim().isEmpty) return;
+    final assist = widget.assist;
+
+    var image = _attachedImage;
+    if (image.isEmpty && _attachScreenshot && assist != null) {
+      image = assist.screenshotPath;
+    }
+    final contextText = _attachScreenText && assist != null ? assist.text : '';
+
+    if (text.trim().isEmpty && image.isEmpty && contextText.isEmpty) return;
+
+    // Files in the cache folder can disappear, keep a copy with the chat
+    if (image.isNotEmpty) {
+      try {
+        image = await persistImage(image);
+      } catch (_) {
+        image = '';
+      }
+    }
+
     _input.clear();
-    _session.send(text);
+    setState(() {
+      _attachedImage = '';
+      // The screen is attached to the first message only
+      _attachScreenText = false;
+      _attachScreenshot = false;
+    });
+    await _session.send(text, imagePath: image, contextText: contextText);
+  }
+
+  Future<void> _pickImage(ImageSource source) async {
+    try {
+      final file = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1600,
+        imageQuality: 85,
+      );
+      if (file != null && mounted) setState(() => _attachedImage = file.path);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not get the picture: $e')),
+        );
+      }
+    }
+  }
+
+  void _showAttachMenu() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheet) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Choose a picture'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _pickImage(ImageSource.gallery);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take a picture'),
+              onTap: () {
+                Navigator.pop(sheet);
+                _pickImage(ImageSource.camera);
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _toggleListening() async {
+    if (_listening) {
+      await _stopListening();
+      return;
+    }
+
+    _dictationBase = _input.text.isEmpty ? '' : '${_input.text.trimRight()} ';
+    final ok = await _speech.listen(
+      locale: _storage.speechLocale,
+      onResult: (text, isFinal) {
+        if (!mounted) return;
+        _input.value = TextEditingValue(
+          text: '$_dictationBase$text',
+          selection: TextSelection.collapsed(
+            offset: '$_dictationBase$text'.length,
+          ),
+        );
+      },
+      onError: (e) {
+        if (mounted) setState(() => _listening = false);
+      },
+      onDone: () {
+        if (mounted) setState(() => _listening = false);
+      },
+    );
+
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Speech recognition is not available. Check the microphone permission.',
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => _listening = true);
+  }
+
+  Future<void> _stopListening() async {
+    await _speech.stopListening();
+    if (mounted) setState(() => _listening = false);
+  }
+
+  void _share() {
+    final name = _session.settings.assistantName;
+    Share.share(
+      transcript(
+        widget.chat.name,
+        _session.messages.map((m) => (isBot: m.isBot, text: m.text)),
+        name,
+      ),
+    );
   }
 
   @override
@@ -63,6 +251,8 @@ class _ChatScreenState extends State<ChatScreen> {
     final storage = context.watch<Storage>();
     final settings = _session.settings;
     final messages = _session.messages;
+    final assist = widget.assist;
+    final assistEmpty = assist != null && assist.isEmpty;
 
     return Scaffold(
       appBar: AppBar(
@@ -99,9 +289,15 @@ class _ChatScreenState extends State<ChatScreen> {
                   message: 'Delete all messages in this chat?',
                 );
                 if (ok) await _session.clear();
+              } else if (v == 'share') {
+                _share();
+              } else if (v == 'silence') {
+                await _speech.stopSpeaking();
               }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'share', child: Text('Share chat')),
+              PopupMenuItem(value: 'silence', child: Text('Stop speaking')),
               PopupMenuItem(value: 'clear', child: Text('Clear chat')),
             ],
           ),
@@ -109,6 +305,20 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
       body: Column(
         children: [
+          if (assistEmpty)
+            MaterialBanner(
+              leading: const Icon(Icons.info_outline),
+              content: const Text(
+                'Grace did not receive the screen. In the system settings for the digital assistant, '
+                'turn on "Use text from screen" and "Use screenshot".',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: NativeBridge.openAssistantSettings,
+                  child: const Text('Open settings'),
+                ),
+              ],
+            ),
           Expanded(
             child: messages.isEmpty
                 ? Center(
@@ -130,6 +340,10 @@ class _ChatScreenState extends State<ChatScreen> {
                           messages[i].isBot,
                       onCopy: () => Clipboard.setData(
                         ClipboardData(text: messages[i].text),
+                      ),
+                      onSpeak: () => _speech.speak(
+                        messages[i].text,
+                        locale: storage.speechLocale,
                       ),
                       onEdit: () async {
                         final text = await promptText(
@@ -159,12 +373,18 @@ class _ChatScreenState extends State<ChatScreen> {
                 ),
               ],
             ),
+          _attachments(assist),
           SafeArea(
             child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+              padding: const EdgeInsets.fromLTRB(4, 4, 12, 8),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
+                  IconButton(
+                    tooltip: 'Attach a picture',
+                    onPressed: _showAttachMenu,
+                    icon: const Icon(Icons.add_photo_alternate_outlined),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _input,
@@ -183,7 +403,15 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 4),
+                  IconButton(
+                    tooltip: _listening ? 'Stop dictation' : 'Dictate',
+                    onPressed: _toggleListening,
+                    color: _listening
+                        ? Theme.of(context).colorScheme.error
+                        : null,
+                    icon: Icon(_listening ? Icons.mic : Icons.mic_none),
+                  ),
                   _session.generating
                       ? IconButton.filledTonal(
                           tooltip: 'Stop',
@@ -203,6 +431,57 @@ class _ChatScreenState extends State<ChatScreen> {
       ),
     );
   }
+
+  Widget _attachments(AssistContext? assist) {
+    final chips = <Widget>[];
+
+    if (assist != null && assist.text.trim().isNotEmpty) {
+      chips.add(
+        FilterChip(
+          avatar: const Icon(Icons.article_outlined, size: 18),
+          label: Text('Screen text (${assist.text.length})'),
+          selected: _attachScreenText,
+          onSelected: (v) => setState(() => _attachScreenText = v),
+        ),
+      );
+    }
+    if (assist != null && assist.screenshotPath.isNotEmpty) {
+      chips.add(
+        FilterChip(
+          avatar: const Icon(Icons.screenshot_outlined, size: 18),
+          label: const Text('Screenshot'),
+          selected: _attachScreenshot && _attachedImage.isEmpty,
+          onSelected: (v) => setState(() => _attachScreenshot = v),
+        ),
+      );
+    }
+
+    if (_attachedImage.isNotEmpty) {
+      chips.add(
+        InputChip(
+          avatar: ClipOval(
+            child: Image.file(
+              File(_attachedImage),
+              width: 24,
+              height: 24,
+              fit: BoxFit.cover,
+            ),
+          ),
+          label: const Text('Picture'),
+          onDeleted: () => setState(() => _attachedImage = ''),
+        ),
+      );
+    }
+
+    if (chips.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: Wrap(spacing: 8, children: chips),
+      ),
+    );
+  }
 }
 
 class _MessageBubble extends StatelessWidget {
@@ -211,6 +490,7 @@ class _MessageBubble extends StatelessWidget {
     required this.showReasoning,
     required this.streaming,
     required this.onCopy,
+    required this.onSpeak,
     required this.onEdit,
     required this.onDelete,
     this.onRegenerate,
@@ -220,6 +500,7 @@ class _MessageBubble extends StatelessWidget {
   final bool showReasoning;
   final bool streaming;
   final VoidCallback onCopy;
+  final VoidCallback onSpeak;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final VoidCallback? onRegenerate;
@@ -273,6 +554,56 @@ class _MessageBubble extends StatelessWidget {
                       ),
                     ],
                   ),
+                if (message.toolLog.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.build_outlined,
+                          size: 16,
+                          color: foreground.withValues(alpha: 0.7),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            message.toolLog,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (message.imagePath.isNotEmpty &&
+                    File(message.imagePath).existsSync())
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) =>
+                              ImageViewerScreen(path: message.imagePath),
+                        ),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.file(
+                          File(message.imagePath),
+                          width: 260,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                    ),
+                  ),
+                if (message.contextText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      'Screen text attached',
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                  ),
                 if (isBot)
                   message.text.isEmpty && streaming
                       ? const Padding(
@@ -283,6 +614,8 @@ class _MessageBubble extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           ),
                         )
+                      : message.text.isEmpty
+                      ? const SizedBox.shrink()
                       : MarkdownBody(
                           data: message.text,
                           selectable: true,
@@ -298,7 +631,7 @@ class _MessageBubble extends StatelessWidget {
                                 ),
                               ),
                         )
-                else
+                else if (message.text.isNotEmpty)
                   SelectableText(
                     message.text,
                     style: TextStyle(color: foreground),
@@ -327,6 +660,15 @@ class _MessageBubble extends StatelessWidget {
                 onCopy();
               },
             ),
+            if (message.isBot)
+              ListTile(
+                leading: const Icon(Icons.volume_up_outlined),
+                title: const Text('Read aloud'),
+                onTap: () {
+                  Navigator.pop(sheet);
+                  onSpeak();
+                },
+              ),
             ListTile(
               leading: const Icon(Icons.edit_outlined),
               title: const Text('Edit'),

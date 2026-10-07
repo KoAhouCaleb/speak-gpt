@@ -59,6 +59,167 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
+  bool get speakReplies => _prefs.getBool('speak_replies') ?? false;
+  Future<void> setSpeakReplies(bool v) async {
+    await _prefs.setBool('speak_replies', v);
+    notifyListeners();
+  }
+
+  /// Locale id for speech input and output, empty for the device default.
+  String get speechLocale => _prefs.getString('speech_locale') ?? '';
+  Future<void> setSpeechLocale(String v) async {
+    await _prefs.setString('speech_locale', v);
+    notifyListeners();
+  }
+
+  bool get autoAttachScreen => _prefs.getBool('auto_attach_screen') ?? true;
+  Future<void> setAutoAttachScreen(bool v) async {
+    await _prefs.setBool('auto_attach_screen', v);
+    notifyListeners();
+  }
+
+  String get imageModel => _prefs.getString('image_model') ?? 'gpt-image-1';
+  Future<void> setImageModel(String v) async {
+    await _prefs.setString('image_model', v);
+    notifyListeners();
+  }
+
+  String get imageResolution =>
+      _prefs.getString('image_resolution') ?? '1024x1024';
+  Future<void> setImageResolution(String v) async {
+    await _prefs.setString('image_resolution', v);
+    notifyListeners();
+  }
+
+  /// Base URL of the SearXNG instance used by the internet search tool.
+  String get searxngUrl => _prefs.getString('searxng_url') ?? '';
+  Future<void> setSearxngUrl(String v) async {
+    await _prefs.setString('searxng_url', v.trim());
+    notifyListeners();
+  }
+
+  /// Stored mode of a tool: 'disabled', 'confirm' or 'auto'. Null if never set.
+  String? toolMode(String tool) => _prefs.getString('tool_mode_$tool');
+  Future<void> setToolMode(String tool, String mode) async {
+    await _prefs.setString('tool_mode_$tool', mode);
+    notifyListeners();
+  }
+
+  /// Navigation started by the assistant, kept so a stop can be added later.
+  ({String destination, String mode, List<String> stops})? get navigation {
+    final raw = _prefs.getString('navigation');
+    if (raw == null) return null;
+    try {
+      final j = jsonDecode(raw) as Map<String, dynamic>;
+      // A trip older than 12 hours belongs to a previous journey
+      if (DateTime.now().millisecondsSinceEpoch - (j['time'] as int) >
+          12 * 3600 * 1000) {
+        return null;
+      }
+      return (
+        destination: j['destination'] as String,
+        mode: j['mode'] as String,
+        stops: List<String>.from(j['stops'] as List),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> setNavigation(
+    String destination,
+    String mode,
+    List<String> stops,
+  ) async {
+    await _prefs.setString(
+      'navigation',
+      jsonEncode({
+        'destination': destination,
+        'mode': mode,
+        'stops': stops,
+        'time': DateTime.now().millisecondsSinceEpoch,
+      }),
+    );
+  }
+
+  // ---- Logit bias sets ---------------------------------------------------
+
+  List<LogitBiasSet> get logitBiasSets {
+    final raw = _prefs.getString('logit_bias_sets');
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => LogitBiasSet.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> saveLogitBiasSet(LogitBiasSet set) async {
+    final list = logitBiasSets.where((e) => e.id != set.id).toList()..add(set);
+    await _prefs.setString(
+      'logit_bias_sets',
+      jsonEncode(list.map((e) => e.toJson()).toList()),
+    );
+    notifyListeners();
+  }
+
+  Future<void> deleteLogitBiasSet(String id) async {
+    final list = logitBiasSets.where((e) => e.id != id).toList();
+    await _prefs.setString(
+      'logit_bias_sets',
+      jsonEncode(list.map((e) => e.toJson()).toList()),
+    );
+    notifyListeners();
+  }
+
+  LogitBiasSet? logitBiasSetById(String id) {
+    for (final s in logitBiasSets) {
+      if (s.id == id) return s;
+    }
+    return null;
+  }
+
+  // ---- Prompts library -----------------------------------------------------
+
+  List<SavedPrompt> get prompts {
+    final raw = _prefs.getString('prompts');
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => SavedPrompt.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> savePrompt(SavedPrompt prompt) async {
+    final all = prompts;
+    final i = all.indexWhere((p) => p.id == prompt.id);
+    if (i >= 0) {
+      all[i] = prompt;
+    } else {
+      all.add(prompt);
+    }
+    await _prefs.setString(
+      'prompts',
+      jsonEncode(all.map((e) => e.toJson()).toList()),
+    );
+    notifyListeners();
+  }
+
+  Future<void> deletePrompt(String id) async {
+    await _prefs.setString(
+      'prompts',
+      jsonEncode(
+        prompts.where((p) => p.id != id).map((e) => e.toJson()).toList(),
+      ),
+    );
+    notifyListeners();
+  }
+
   // ---- Endpoints -------------------------------------------------------
 
   List<ApiEndpoint> get endpointsRaw {
@@ -154,6 +315,29 @@ class Storage extends ChangeNotifier {
     return '$prefix $x';
   }
 
+  /// Settings copied into every new chat.
+  ChatSettings get defaultChatSettings {
+    final raw = _prefs.getString('default_chat_settings');
+    final fallbackEndpoint = sha256Hex(_defaultEndpoint);
+    try {
+      if (raw != null) {
+        final s = ChatSettings.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
+        if (s.endpointId.isEmpty) s.endpointId = fallbackEndpoint;
+        return s;
+      }
+    } catch (_) {
+      // Fall through to the built-in defaults
+    }
+    return ChatSettings(endpointId: fallbackEndpoint);
+  }
+
+  Future<void> saveDefaultChatSettings(ChatSettings s) async {
+    await _prefs.setString('default_chat_settings', jsonEncode(s.toJson()));
+    notifyListeners();
+  }
+
   Future<ChatInfo> addChat(String name, {ChatSettings? settings}) async {
     final info = ChatInfo(
       name: name,
@@ -161,7 +345,7 @@ class Storage extends ChangeNotifier {
     );
     await _saveChats([...chats, info]);
     await _prefs.setString('chat_${info.id}', '[]');
-    if (settings != null) await saveChatSettings(info.id, settings);
+    await saveChatSettings(info.id, settings ?? defaultChatSettings);
     return info;
   }
 
