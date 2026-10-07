@@ -32,6 +32,7 @@ jobs:
 
       # A fixed debug key lets new builds install as updates over old ones.
       # Without it, Gradle generates a random key on every fresh runner.
+      # app/build.gradle signs debug builds with the file in DEBUG_KEYSTORE_FILE.
       - name: Install fixed debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
@@ -40,12 +41,18 @@ jobs:
             echo "::warning::DEBUG_KEYSTORE_BASE64 is not set, the APK is signed with a random debug key"
             exit 0
           fi
-          mkdir -p ~/.android
+          keystore="$RUNNER_TEMP/debug.keystore"
           # Accept certutil output (BEGIN/END lines) and Windows line endings
-          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d ' \t\r\n' | base64 -d > ~/.android/debug.keystore; then
+          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d ' \t\r\n' | base64 -d > "$keystore"; then
             echo "::error::DEBUG_KEYSTORE_BASE64 is not valid base64. Create it with: base64 -w0 debug.keystore (Linux), base64 -i debug.keystore (macOS) or [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore')) (PowerShell)"
             exit 1
           fi
+          # Standard Android debug keystore: password "android", alias "androiddebugkey"
+          if ! keytool -list -v -keystore "$keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"; then
+            echo "::error::The decoded keystore can not be opened as an Android debug keystore (password android, alias androiddebugkey)"
+            exit 1
+          fi
+          echo "DEBUG_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         run: |
