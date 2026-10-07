@@ -216,11 +216,23 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
         val url = ModelListClient.modelsUrl(apiEndpoint.host)
 
         Log.i(TAG, "Loading models for endpoint \"${apiEndpoint.label}\" (id $apiEndpointId, host \"${apiEndpoint.host}\"), saved model \"$model\"")
-        modelsStatus?.text = getString(R.string.label_loading_models) + "\n" + url
+
+        // Show the list from the last successful fetch right away, then refresh it
+        val cached = ModelListClient.getCachedTextModels(requireActivity(), apiEndpoint.host, apiEndpoint.apiKey)
+        if (cached.isNotEmpty()) {
+            Log.i(TAG, "Showing ${cached.size} cached models while refreshing")
+            populateModelButtons(cached)
+            reloadModelList(model)
+            modelsStatus?.text = getString(R.string.label_updating_models)
+        } else {
+            modelsStatus?.text = getString(R.string.label_loading_models) + "\n" + url
+        }
+
+        val request = ModelListClient.loadTextModels(requireActivity(), apiEndpoint.host, apiEndpoint.apiKey)
 
         viewLifecycleOwner.lifecycleScope.launch {
             try {
-                val models = ModelListClient.fetchTextModels(apiEndpoint.host, apiEndpoint.apiKey)
+                val models = request.await()
 
                 if (models.isEmpty()) {
                     Log.w(TAG, "No text models returned by $url")
@@ -233,7 +245,7 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
                 modelsStatus?.visibility = View.GONE
                 reloadModelList(model)
             } catch (e: CancellationException) {
-                Log.i(TAG, "Model loading cancelled (dialog closed)")
+                Log.i(TAG, "Dialog closed before the models loaded, the request continues and its result will be cached")
                 throw e
             } catch (e: Throwable) {
                 // Throwable, not Exception, so errors such as classes removed by R8 are shown too
