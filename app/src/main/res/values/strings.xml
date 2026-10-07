@@ -476,6 +476,9 @@
     <string name="label_added_to_favorites">Added to favorites</string>
     <string name="msg_model_loading_error_with_details">"An error occurred while fetching models. Please check your Internet and API key and try again later. Error message: "</string>
     <string name="msg_error_loading_models">An error occurred while fetching models. Please check your Internet and API key and try again later.</string>
+    <string name="label_loading_models" tools:ignore="TypographyEllipsis">Loading models...</string>
+    <string name="label_updating_models" tools:ignore="TypographyEllipsis">Updating model list...</string>
+    <string name="label_no_models_found">No models were returned by the API endpoint.</string>
     <string name="label_select_ai_model">Select AI model</string>
     <string name="label_add_api_endpoint">Add API endpoint</string>
     <string name="label_delete_api_endpoint">Delete API endpoint</string>

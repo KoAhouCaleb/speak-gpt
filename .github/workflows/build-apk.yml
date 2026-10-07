@@ -3,10 +3,17 @@ name: Build APK
 on:
   push:
     branches:
+      - main
       - claude/app-feature-additions-4ltaoq
+      - ccr-7583d52e-csqybl
       - claude/tool-calling-implementation-2syg9t
       - claude/tts-streaming-queue-a6fo7v
   workflow_dispatch:
+    inputs:
+      full_build:
+        description: Run R8 and lint vital like a release build (slower, smaller APK)
+        type: boolean
+        default: false
 
 # A newer push makes an older, still running build obsolete
 concurrency:
@@ -55,10 +62,18 @@ jobs:
           fi
           echo "DEBUG_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
 
+      # Push builds skip R8 and lint vital (-PfastBuild). Start the workflow by hand with
+      # full_build checked to test the optimized build.
       - name: Build debug APK
+        env:
+          FULL_BUILD: ${{ inputs.full_build }}
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace --build-cache assembleDebug
+          if [ "$FULL_BUILD" = "true" ]; then
+            ./gradlew --no-daemon --stacktrace --build-cache assembleDebug
+          else
+            ./gradlew --no-daemon --stacktrace --build-cache assembleDebug -PfastBuild
+          fi
 
       - name: Print signing certificate
         run: |

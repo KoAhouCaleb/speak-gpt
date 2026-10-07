@@ -97,158 +97,19 @@
                     android:textSize="14sp"
                     android:textStyle="bold" />
 
-                <RadioButton
-                    android:id="@+id/gpt_5"
+                <TextView
+                    android:id="@+id/models_status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="24dp"
                     android:layout_marginTop="24dp"
                     android:layout_marginEnd="24dp"
-                    android:button="@null"
+                    android:gravity="center_vertical"
                     android:minHeight="56dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="GPT 5"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_5_mini"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 5 Mini"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_5_nano"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 5 Nano"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_o3"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="o3"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_o3_mini"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="o3-mini"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_o1"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginEnd="24dp"
-                    android:layout_marginTop="2dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="o1"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_o1_mini"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginEnd="24dp"
-                    android:layout_marginTop="2dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="o1-mini"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_4_o"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginEnd="24dp"
-                    android:layout_marginTop="2dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 4o"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_4_turbo"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 4 Turbo"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_4"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginTop="2dp"
-                    android:layout_marginEnd="24dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 4"
-                    android:textSize="16sp" />
-
-                <RadioButton
-                    android:id="@+id/gpt_35_turbo"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="24dp"
-                    android:layout_marginEnd="24dp"
-                    android:layout_marginTop="2dp"
-                    android:button="@null"
-                    android:minHeight="56dp"
-                    android:paddingStart="16dp"
-                    android:paddingEnd="16dp"
-                    android:text="GPT 3.5 Turbo"
+                    android:text="@string/label_loading_models"
+                    android:textColor="?android:attr/textColorSecondary"
                     android:textSize="16sp" />
 
                 <RadioButton

@@ -26,21 +26,32 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.util.Log
+import android.util.TypedValue
 import android.widget.EditText
 import android.widget.RadioButton
+import android.widget.RadioGroup
+import android.widget.TextView
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.elevation.SurfaceColors
 import com.google.android.material.textfield.TextInputLayout
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 import org.teslasoft.assistant.R
+import org.teslasoft.assistant.preferences.ApiEndpointPreferences
 import org.teslasoft.assistant.preferences.Preferences
+import org.teslasoft.assistant.util.ModelListClient
 
 class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
     companion object {
+        private const val TAG = "AdvancedSettings"
+
         fun newInstance(name: String, chatId: String) : AdvancedSettingsDialogFragment {
             val advancedSettingsDialogFragment = AdvancedSettingsDialogFragment()
 
@@ -54,17 +65,10 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
         }
     }
 
-    private var gpt_35_turbo: RadioButton? = null
-    private var gpt_4: RadioButton? = null
-    private var gpt_4_turbo: RadioButton? = null
-    private var gpt_4_o: RadioButton? = null
-    private var gpt_5: RadioButton? = null
-    private var gpt_5_mini: RadioButton? = null
-    private var gpt_5_nano: RadioButton? = null
-    private var o3_mini: RadioButton? = null
-    private var o3: RadioButton? = null
-    private var o1_mini: RadioButton? = null
-    private var o1: RadioButton? = null
+    private var radioGroup: RadioGroup? = null
+    private var modelsStatus: TextView? = null
+    // Buttons for models returned by the /models endpoint, keyed by model id
+    private var modelButtons: LinkedHashMap<String, RadioButton> = linkedMapOf()
     private var see_all_models: RadioButton? = null
     private var see_favorite_models: RadioButton? = null
     private var ft: RadioButton? = null
@@ -99,17 +103,8 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        gpt_35_turbo = view.findViewById(R.id.gpt_35_turbo)
-        gpt_4 = view.findViewById(R.id.gpt_4)
-        gpt_4_turbo = view.findViewById(R.id.gpt_4_turbo)
-        gpt_4_o = view.findViewById(R.id.gpt_4_o)
-        gpt_5 = view.findViewById(R.id.gpt_5)
-        gpt_5_mini = view.findViewById(R.id.gpt_5_mini)
-        gpt_5_nano = view.findViewById(R.id.gpt_5_nano)
-        o3_mini = view.findViewById(R.id.gpt_o3_mini)
-        o3 = view.findViewById(R.id.gpt_o3)
-        o1_mini = view.findViewById(R.id.gpt_o1_mini)
-        o1 = view.findViewById(R.id.gpt_o1)
+        radioGroup = view.findViewById(R.id.radioGroup)
+        modelsStatus = view.findViewById(R.id.models_status)
         see_all_models = view.findViewById(R.id.see_all_models)
         see_favorite_models = view.findViewById(R.id.see_favorite_models)
         ft = view.findViewById(R.id.ft)
@@ -168,18 +163,6 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
         endSeparator?.setText(preferences.getEndSeparator())
         prefix?.setText(preferences.getPrefix())
 
-        bindClickListener(gpt_35_turbo, "gpt-3.5-turbo")
-        bindClickListener(gpt_5, "gpt-5")
-        bindClickListener(gpt_5_mini, "gpt-5-mini")
-        bindClickListener(gpt_5_nano, "gpt-5-nano")
-        bindClickListener(o3_mini, "o3-mini")
-        bindClickListener(o3, "o3")
-        bindClickListener(o1_mini, "o1-mini")
-        bindClickListener(o1, "o1")
-        bindClickListener(gpt_4, "gpt-4")
-        bindClickListener(gpt_4_turbo, "gpt-4-turbo-preview")
-        bindClickListener(gpt_4_o, "gpt-4o")
-
         ft?.setOnClickListener {
             setSelection(ft, ftInput?.text.toString(), hideFt = false, validateForm = false)
         }
@@ -223,6 +206,85 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
 
         model = requireArguments().getString("name").toString()
         reloadModelList(model)
+        loadModels(preferences)
+    }
+
+    private fun loadModels(preferences: Preferences) {
+        val apiEndpointPreferences = ApiEndpointPreferences.getApiEndpointPreferences(requireActivity())
+        val apiEndpointId = preferences.getApiEndpointId()
+        val apiEndpoint = apiEndpointPreferences.getApiEndpoint(requireActivity(), apiEndpointId)
+        val url = ModelListClient.modelsUrl(apiEndpoint.host)
+
+        Log.i(TAG, "Loading models for endpoint \"${apiEndpoint.label}\" (id $apiEndpointId, host \"${apiEndpoint.host}\"), saved model \"$model\"")
+
+        // Show the list from the last successful fetch right away, then refresh it
+        val cached = ModelListClient.getCachedTextModels(requireActivity(), apiEndpoint.host, apiEndpoint.apiKey)
+        if (cached.isNotEmpty()) {
+            Log.i(TAG, "Showing ${cached.size} cached models while refreshing")
+            populateModelButtons(cached)
+            reloadModelList(model)
+            modelsStatus?.text = getString(R.string.label_updating_models)
+        } else {
+            modelsStatus?.text = getString(R.string.label_loading_models) + "\n" + url
+        }
+
+        val request = ModelListClient.loadTextModels(requireActivity(), apiEndpoint.host, apiEndpoint.apiKey)
+
+        viewLifecycleOwner.lifecycleScope.launch {
+            try {
+                val models = request.await()
+
+                if (models.isEmpty()) {
+                    Log.w(TAG, "No text models returned by $url")
+                    modelsStatus?.text = getString(R.string.label_no_models_found) + "\n" + url
+                    return@launch
+                }
+
+                populateModelButtons(models)
+                Log.i(TAG, "Showing ${modelButtons.size} model buttons, saved model in list: ${modelButtons.containsKey(model)}")
+                modelsStatus?.visibility = View.GONE
+                reloadModelList(model)
+            } catch (e: CancellationException) {
+                Log.i(TAG, "Dialog closed before the models loaded, the request continues and its result will be cached")
+                throw e
+            } catch (e: Throwable) {
+                // Throwable, not Exception, so errors such as classes removed by R8 are shown too
+                Log.e(TAG, "Failed to load models from $url", e)
+                modelsStatus?.text = getString(R.string.msg_model_loading_error_with_details) + e.javaClass.simpleName + ": " + e.message.toString() + "\n" + url
+            }
+        }
+    }
+
+    private fun populateModelButtons(models: List<String>) {
+        val group = radioGroup ?: return
+        val status = modelsStatus ?: return
+
+        modelButtons.values.forEach { group.removeView(it) }
+        modelButtons.clear()
+
+        val insertAt = group.indexOfChild(status) + 1
+
+        models.forEachIndexed { index, id ->
+            val button = RadioButton(requireActivity())
+            button.setButtonDrawable(null)
+            button.minHeight = dp(56)
+            button.setPadding(dp(16), 0, dp(16), 0)
+            button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
+            button.text = id
+
+            val params = RadioGroup.LayoutParams(RadioGroup.LayoutParams.MATCH_PARENT, RadioGroup.LayoutParams.WRAP_CONTENT)
+            params.marginStart = dp(24)
+            params.marginEnd = dp(24)
+            params.topMargin = if (index == 0) dp(24) else dp(2)
+
+            group.addView(button, insertAt + index, params)
+            bindClickListener(button, id)
+            modelButtons[id] = button
+        }
+    }
+
+    private fun dp(value: Int) : Int {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics).toInt()
     }
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
@@ -230,22 +292,13 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
     }
 
     private fun reloadModelList(model: String) {
-        when (model) { // load default model if settings not found
-            "gpt-3.5-turbo" -> setSelection(gpt_35_turbo, null, hideFt = true, validateForm = false)
-            "gpt-5" -> setSelection(gpt_5, null, hideFt = true, validateForm = false)
-            "gpt-5-mini" -> setSelection(gpt_5_mini, null, hideFt = true, validateForm = false)
-            "gpt-5-nano" -> setSelection(gpt_5_nano, null, hideFt = true, validateForm = false)
-            "o3-mini" -> setSelection(o3_mini, null, hideFt = true, validateForm = false)
-            "o3" -> setSelection(o3, null, hideFt = true, validateForm = false)
-            "o1-mini" -> setSelection(o1_mini, null, hideFt = true, validateForm = false)
-            "o1" -> setSelection(o1, null, hideFt = true, validateForm = false)
-            "gpt-4" -> setSelection(gpt_4, null, hideFt = true, validateForm = false)
-            "gpt-4-turbo-preview" -> setSelection(gpt_4_turbo, null, hideFt = true, validateForm = false)
-            "gpt-4o" -> setSelection(gpt_4_o, null, hideFt = true, validateForm = false)
-            else -> {
-                setSelection(ft, model, hideFt = false, validateForm = false)
-                ftInput?.setText(model)
-            }
+        val button = modelButtons[model]
+
+        if (button != null) {
+            setSelection(button, null, hideFt = true, validateForm = false)
+        } else { // model is not in the fetched list (or the list is not loaded yet)
+            setSelection(ft, model, hideFt = false, validateForm = false)
+            ftInput?.setText(model)
         }
     }
 
@@ -268,25 +321,19 @@ class AdvancedSettingsDialogFragment : BottomSheetDialogFragment() {
 
     private fun clearSingleSelection(view: RadioButton?, isTop: Boolean = false, isBottom: Boolean = false) {
         var background = R.drawable.btn_accent_center
-        if (isTop) background = R.drawable.btn_accent_top
-        if (isBottom) background = R.drawable.btn_accent_bottom
+        if (isTop && isBottom) background = R.drawable.btn_accent
+        else if (isTop) background = R.drawable.btn_accent_top
+        else if (isBottom) background = R.drawable.btn_accent_bottom
         view?.background = getDarkAccentDrawable(
             ContextCompat.getDrawable(requireActivity(), background)!!, requireActivity())
         view?.setTextColor(ContextCompat.getColor(requireActivity(), R.color.neutral_200))
     }
 
     private fun clearSelection() {
-        clearSingleSelection(gpt_35_turbo, isBottom = true)
-        clearSingleSelection(gpt_5, isTop = true)
-        clearSingleSelection(gpt_5_mini)
-        clearSingleSelection(gpt_5_nano)
-        clearSingleSelection(o3_mini)
-        clearSingleSelection(o3)
-        clearSingleSelection(o1_mini)
-        clearSingleSelection(o1)
-        clearSingleSelection(gpt_4)
-        clearSingleSelection(gpt_4_turbo)
-        clearSingleSelection(gpt_4_o)
+        val buttons = modelButtons.values.toList()
+        buttons.forEachIndexed { index, button ->
+            clearSingleSelection(button, isTop = index == 0, isBottom = index == buttons.lastIndex)
+        }
         clearSingleSelection(ft, isBottom = true)
         clearSingleSelection(see_all_models)
         clearSingleSelection(see_favorite_models, isTop = true)
