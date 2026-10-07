@@ -28,3 +28,4 @@ local.properties
 .pub-cache/
 .pub/
 /build/
+/.idea/
