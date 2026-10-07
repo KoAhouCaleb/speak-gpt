@@ -49,6 +49,9 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     private var launched = false
     private var shown = false
 
+    // Set after asking the system again for screen data (see onShow)
+    private var contextRequested = false
+
     // Assist data can be delivered before onShow(), so remember what already arrived
     private var screenshotReceived = false
     private var assistDataReceived = false
@@ -59,6 +62,27 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
 
         launched = false
         shown = true
+
+        val contextFlags = SHOW_WITH_ASSIST or SHOW_WITH_SCREENSHOT
+
+        // Some launch paths (e.g. the assist gesture on recent Pixel builds) show the session
+        // without SHOW_WITH_ASSIST / SHOW_WITH_SCREENSHOT, so the system does not fetch the screen.
+        // Re-show the session with these flags; the system then requests the screenshot and
+        // screen text, still honouring the user's "Use screen and app data" setting.
+        if (showFlags and contextFlags == 0 && !contextRequested) {
+            contextRequested = true
+            log("Session shown without screen request (flags: $showFlags), requesting screen data")
+
+            handler.removeCallbacks(fallback)
+            handler.postDelayed(fallback, ASSIST_DATA_TIMEOUT_MS)
+
+            try {
+                show(args ?: Bundle(), showFlags or contextFlags)
+                return
+            } catch (e: Exception) {
+                log("Failed to request screen data: ${e.message}")
+            }
+        }
 
         val screenshotRequested = showFlags and SHOW_WITH_SCREENSHOT != 0
         val assistDataRequested = showFlags and SHOW_WITH_ASSIST != 0
@@ -71,6 +95,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         if (!waitingForScreenshot && !waitingForAssistData) {
             launchAssistant()
         } else {
+            handler.removeCallbacks(fallback)
             handler.postDelayed(fallback, ASSIST_DATA_TIMEOUT_MS)
         }
     }
@@ -79,6 +104,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         super.onHide()
         handler.removeCallbacks(fallback)
         shown = false
+        contextRequested = false
         screenshotReceived = false
         assistDataReceived = false
     }
@@ -88,7 +114,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         // Index 0 is the focused activity. Other indexes are secondary (multi-window) activities.
         if (state.index == 0) {
             saveStructure(state.assistStructure)
-            assistDataReceived = true
+            if (shown) assistDataReceived = true
             waitingForAssistData = false
             maybeLaunch()
         }
@@ -99,7 +125,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     override fun onHandleAssist(data: Bundle?, structure: AssistStructure?, content: AssistContent?) {
         // Called only on Android 9 (the AssistState overload above is used on Android 10+)
         saveStructure(structure)
-        assistDataReceived = true
+        if (shown) assistDataReceived = true
         waitingForAssistData = false
         maybeLaunch()
     }
@@ -115,7 +141,8 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
             }
         }
 
-        screenshotReceived = true
+        // Late callbacks after hide() must not count for the next invocation
+        if (shown) screenshotReceived = true
         waitingForScreenshot = false
         maybeLaunch()
     }
