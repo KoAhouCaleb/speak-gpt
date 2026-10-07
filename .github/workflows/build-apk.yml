@@ -40,7 +40,12 @@ jobs:
             exit 0
           fi
           mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
+          # Drop whitespace and the "%" zsh prints after output without a trailing newline
+          printf '%s' "$DEBUG_KEYSTORE_BASE64" | tr -d '[:space:]%' | base64 -d > ~/.android/debug.keystore
+          if ! keytool -list -keystore ~/.android/debug.keystore -storepass android -alias androiddebugkey > /dev/null; then
+            echo "::error::DEBUG_KEYSTORE_BASE64 is not a keystore with alias androiddebugkey and password android"
+            exit 1
+          fi
 
       - name: Build debug APK
         run: |
