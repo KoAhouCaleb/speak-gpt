@@ -343,6 +343,20 @@
             app:layout_constraintEnd_toStartOf="@+id/btn_save"
             app:layout_constraintTop_toTopOf="parent" />
 
+        <ImageButton
+            android:id="@+id/btn_attach_screen"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="8dp"
+            android:layout_marginTop="8dp"
+            android:contentDescription="@string/btn_attach_screen"
+            android:src="@drawable/ic_screenshot"
+            android:tooltipText="@string/btn_attach_screen"
+            android:visibility="gone"
+            app:layout_constraintStart_toEndOf="@+id/btn_exit"
+            app:layout_constraintTop_toTopOf="parent" />
+
         <LinearLayout
             android:id="@+id/attachedImage"
             android:layout_width="wrap_content"

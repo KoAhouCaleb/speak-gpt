@@ -135,10 +135,12 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.teslasoft.assistant.R
+import org.teslasoft.assistant.assist.ScreenCaptureAccessibilityService
 import org.teslasoft.assistant.preferences.ApiEndpointPreferences
 import org.teslasoft.assistant.preferences.ChatPreferences
 import org.teslasoft.assistant.preferences.LogitBiasPreferences
 import org.teslasoft.assistant.preferences.Preferences
+import org.teslasoft.assistant.preferences.SpeechServerPreferences
 import org.teslasoft.assistant.preferences.dto.ApiEndpointObject
 import org.teslasoft.assistant.ui.activities.MainActivity
 import org.teslasoft.assistant.ui.activities.SettingsActivity
@@ -150,6 +152,9 @@ import org.teslasoft.assistant.ui.onboarding.WelcomeActivity
 import org.teslasoft.assistant.ui.permission.CameraPermissionActivity
 import org.teslasoft.assistant.ui.permission.MicrophonePermissionActivity
 import org.teslasoft.assistant.util.DefaultPromptsParser
+import org.teslasoft.assistant.util.ChatStreamClient
+import org.teslasoft.assistant.util.ScreenContextStore
+import org.teslasoft.assistant.util.SpeechServerClient
 import org.teslasoft.assistant.util.Hash
 import org.teslasoft.assistant.util.LocaleParser
 import java.io.BufferedReader
@@ -177,6 +182,11 @@ import okio.Path.Companion.toPath
 import java.util.Optional
 
 class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListener {
+
+    companion object {
+        /** Set by AssistSession, which captures the screen before opening the assistant. */
+        const val EXTRA_FROM_ASSIST_SESSION = "FROM_ASSIST_SESSION"
+    }
 
     // Init UI
     private var btnAssistantVoice: LinearLayout? = null
@@ -211,6 +221,10 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
     private var btnCopySelected: ImageButton? = null
     private var btnShareSelected: ImageButton? = null
     private var selectedCount: TextView? = null
+    private var btnAttachScreen: ImageButton? = null
+
+    // Text from the screen, sent as additional system context for this assistant session
+    private var screenTextContext: String? = null
 
     // Init chat
     private var messages: ArrayList<HashMap<String, Any>> = arrayListOf()
@@ -353,7 +367,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                         // Step 3: Convert the Bitmap to a Base64-encoded string
                         val outputStream = ByteArrayOutputStream()
                         bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                         // Step 4: Generate the data URL
                         val imageType = when(format) {
@@ -631,6 +645,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         }
 
         if (savedInstanceState == null) {
+            mContext?.let { ScreenContextStore.clear(it) }
+
             if (messages.isEmpty()) {
                 val chatPreferences = ChatPreferences.getChatPreferences()
                 chatPreferences.deleteChatById(mContext ?: return, chatID)
@@ -691,7 +707,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
     private fun initLogic() {
         btnAssistantVoiceClickable?.setOnClickListener {
-            if (preferences!!.getAudioModel() == "google") {
+            if (useGoogleStt()) {
                 handleGoogleSpeechRecognition()
             } else {
                 handleWhisperSpeechRecognition()
@@ -709,7 +725,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     tts!!.stop()
                 } catch (_: java.lang.Exception) {/* ignored */}
                 btnAssistantVoiceClickable?.setImageResource(R.drawable.ic_microphone)
-                if (preferences!!.getAudioModel() == "google") recognizer?.stopListening()
+                if (useGoogleStt()) recognizer?.stopListening()
                 isRecording = false
                 animation?.stop()
                 animation?.reset()
@@ -744,7 +760,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
     @Suppress("deprecation")
     private fun startWhisper() {
-        if (openAIKey == null) {
+        if (openAIKey == null && !isSpeechServerSttEnabled()) {
             openAIMissing("whisper", "")
         } else if (android.os.Build.VERSION.SDK_INT >= 31) {
             recorder = MediaRecorder(mContext ?: return).apply {
@@ -853,16 +869,22 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
     private suspend fun processRecording() {
         try {
-            val transcriptionRequest = TranscriptionRequest(
-                audio = FileSource(
-                    // path = Path("${mContext?.externalCacheDir?.absolutePath}/tmp.m4a"),
-                    // fileSystem = SystemFileSystem
-                    path = "${mContext?.externalCacheDir?.absolutePath}/tmp.m4a".toPath(),
-                    fileSystem = FileSystem.SYSTEM
-                ),
-                model = ModelId("whisper-1"),
-            )
-            val transcription = openAIAI?.transcription(transcriptionRequest)!!.text
+            val transcription = if (isSpeechServerSttEnabled()) {
+                val sttConfig = SpeechServerPreferences.getSpeechServerPreferences(mContext ?: return).getConfig(SpeechServerPreferences.TYPE_STT)
+                val audioFile = File("${mContext?.externalCacheDir?.absolutePath}/tmp.m4a")
+                withContext(Dispatchers.IO) { SpeechServerClient.transcribe(sttConfig, audioFile) }
+            } else {
+                val transcriptionRequest = TranscriptionRequest(
+                    audio = FileSource(
+                        // path = Path("${mContext?.externalCacheDir?.absolutePath}/tmp.m4a"),
+                        // fileSystem = SystemFileSystem
+                        path = "${mContext?.externalCacheDir?.absolutePath}/tmp.m4a".toPath(),
+                        fileSystem = FileSystem.SYSTEM
+                    ),
+                    model = ModelId("whisper-1"),
+                )
+                openAIAI?.transcription(transcriptionRequest)!!.text
+            }
 
             if (transcription.trim() == "") {
                 isRecording = false
@@ -906,8 +928,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     showKeyboard(true)
                 }
             }
-        } catch (_: Exception) {
-            Toast.makeText(mContext, getString(R.string.label_record_error), Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(mContext, getString(R.string.label_record_error) + (if (isSpeechServerSttEnabled()) ": ${e.message}" else ""), Toast.LENGTH_SHORT).show()
             btnAssistantVoiceClickable?.isEnabled = true
             btnAssistantSend?.isEnabled = true
             assistantLoading?.visibility = View.GONE
@@ -1136,7 +1158,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
                     Thread {
                         bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                         // Step 4: Generate the data URL
                         val imageType = when (format) {
@@ -1417,10 +1439,11 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
                 val reqList: ArrayList<ContentPart> = ArrayList()
                 reqList.add(TextPart(request))
-                reqList.add(ImagePart(baseImageString!!))
+                // Some servers (e.g. llama.cpp) stop decoding base64 at the first line break
+                reqList.add(ImagePart(baseImageString!!.filterNot { it.isWhitespace() }))
                 val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
                     ChatCompletionRequest(
-                        model = ModelId("gpt-4o"),
+                        model = ModelId(model),
                         temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
                         topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
                         frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
@@ -1439,7 +1462,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     )
                 } else {
                     ChatCompletionRequest(
-                        model = ModelId("gpt-4o"),
+                        model = ModelId(model),
                         temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
                         topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
                         frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
@@ -1457,7 +1480,9 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     )
                 }
 
-                val completions: Flow<ChatCompletionChunk> = ai!!.chatCompletions(chatCompletionRequest)
+                val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+                var rawResponse = ""
+                var rawReasoning = ""
 
                 scroll(true)
 
@@ -1467,8 +1492,13 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                             stopper = false
                             return@collect
                         }
-                        if (v.choices.isNotEmpty() && v.choices[0].delta != null && v.choices[0].delta?.content != null && v.choices[0].delta?.content.toString() != "null") {
-                            response += v.choices[0].delta?.content
+                        if (v.content != null || v.reasoning != null) {
+                            rawResponse += v.content ?: ""
+                            rawReasoning += v.reasoning ?: ""
+                            val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                            response = parsed.second
+                            val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                            if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                             if (response != "null") {
                                 messages[messages.size - 1]["message"] = response
                                 scroll(false)
@@ -1776,6 +1806,15 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             )
         }
 
+        screenTextContext?.let {
+            msgs.add(
+                ChatMessage(
+                    role = ChatRole.System,
+                    content = getString(R.string.label_screen_context_prefix) + "\n\n" + it
+                )
+            )
+        }
+
         msgs.addAll(chatMessages)
 
         val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
@@ -1799,8 +1838,9 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             }
         }
 
-        val completions: Flow<ChatCompletionChunk> =
-            ai!!.chatCompletions(chatCompletionRequest)
+        val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+        var rawResponse = ""
+        var rawReasoning = ""
 
         scroll(true)
 
@@ -1810,8 +1850,13 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     stopper = false
                     return@collect
                 }
-                if (v.choices.isNotEmpty() && v.choices[0].delta != null && v.choices[0].delta?.content != null && v.choices[0].delta?.content.toString() != "null") {
-                    response += v.choices[0].delta?.content
+                if (v.content != null || v.reasoning != null) {
+                    rawResponse += v.content ?: ""
+                    rawReasoning += v.reasoning ?: ""
+                    val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                    response = parsed.second
+                    val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                    if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                     messages[messages.size - 1]["message"] = response
                     scroll(false)
                     if (messages.size > 2) {
@@ -1882,8 +1927,46 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         }
     }
 
+    private fun isSpeechServerSttEnabled(): Boolean {
+        return SpeechServerPreferences.getSpeechServerPreferences(mContext ?: return false).isSttEnabled()
+    }
+
+    private fun useGoogleStt(): Boolean {
+        return preferences!!.getAudioModel() == "google" && !isSpeechServerSttEnabled()
+    }
+
+    private fun speakWithSpeechServer(message: String) {
+        val config = SpeechServerPreferences.getSpeechServerPreferences(mContext ?: return).getConfig(SpeechServerPreferences.TYPE_TTS)
+
+        CoroutineScope(Dispatchers.Main).launch {
+            try {
+                val rawAudio = withContext(Dispatchers.IO) { SpeechServerClient.speech(config, message) }
+
+                val tempMp3 = File.createTempFile("audio", "mp3", mContext?.cacheDir)
+                tempMp3.deleteOnExit()
+                FileOutputStream(tempMp3).use { it.write(rawAudio) }
+
+                mediaPlayer?.reset()
+
+                FileInputStream(tempMp3).use { fis ->
+                    mediaPlayer?.setDataSource(fis.fd)
+                    mediaPlayer?.prepare()
+                }
+
+                mediaPlayer?.start()
+            } catch (_: CancellationException) {
+                /* ignored */
+            } catch (e: Exception) {
+                val context = mContext ?: return@launch
+                Toast.makeText(context, context.getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     private fun speak(message: String) {
-        if (preferences!!.getTtsEngine() == "google") {
+        if (SpeechServerPreferences.getSpeechServerPreferences(mContext ?: return).isTtsEnabled()) {
+            speakWithSpeechServer(message)
+        } else if (preferences!!.getTtsEngine() == "google") {
             tts!!.speak(message, TextToSpeech.QUEUE_FLUSH, null, "")
         } else {
             if (openAIKey == null) {
@@ -2267,7 +2350,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {
@@ -2376,6 +2459,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         btnCopySelected = view.findViewById(R.id.btn_copy_selected)
         btnShareSelected = view.findViewById(R.id.btn_share_selected)
         selectedCount = view.findViewById(R.id.text_selected_count)
+        btnAttachScreen = view.findViewById(R.id.btn_attach_screen)
 
         bulkContainer?.visibility = View.GONE
 
@@ -2528,7 +2612,98 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             }
         }
 
+        initScreenContext(savedInstanceState)
+
         hideKeyboard()
+    }
+
+    private fun hasScreenContext(): Boolean {
+        val context = mContext ?: return false
+        // Captures are written by AssistSession or ScreenCaptureAccessibilityService right before
+        // the overlay opens, and expire after two minutes
+        return ScreenContextStore.hasContext(context)
+    }
+
+    private fun initScreenContext(savedInstanceState: Bundle?) {
+        // Always visible so the user can find out why the screen is unavailable
+        btnAttachScreen?.visibility = View.VISIBLE
+        btnAttachScreen?.setOnClickListener {
+            if (hasScreenContext()) {
+                attachScreenContext()
+            } else {
+                explainScreenContextUnavailable()
+            }
+        }
+
+        if (savedInstanceState == null && preferences?.getAutoAttachScreen() == true && hasScreenContext()) {
+            attachScreenContext()
+        }
+    }
+
+    private fun explainScreenContextUnavailable() {
+        val context = mContext ?: return
+
+        val builder = MaterialAlertDialogBuilder(context, R.style.App_MaterialAlertDialog)
+            .setTitle(R.string.label_screen_unavailable)
+            .setNegativeButton(R.string.btn_close) { _, _ -> }
+
+        if (ScreenCaptureAccessibilityService.isEnabled()) {
+            builder.setMessage(R.string.msg_screen_capture_failed)
+        } else {
+            builder.setMessage(R.string.msg_screen_enable_accessibility)
+                .setPositiveButton(R.string.btn_open_accessibility_settings) { _, _ ->
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                    } catch (_: Exception) {
+                        try {
+                            startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                        } catch (_: Exception) { /* ignored */ }
+                    }
+                }
+        }
+
+        builder.show()
+    }
+
+    /**
+     * Attach the screen captured when the assistant was invoked.
+     * Screenshot is attached as an image. If no screenshot is available, on-screen text is used as context.
+     * */
+    private fun attachScreenContext() {
+        val context = mContext ?: return
+        val screenshot = ScreenContextStore.loadScreenshot(context)
+
+        if (screenshot != null) {
+            attachBitmap(screenshot)
+            Toast.makeText(context, getString(R.string.msg_screen_attached), Toast.LENGTH_SHORT).show()
+        } else {
+            screenTextContext = ScreenContextStore.loadText(context)
+            if (screenTextContext != null) {
+                Toast.makeText(context, getString(R.string.msg_screen_text_attached), Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        btnAttachScreen?.visibility = View.GONE
+    }
+
+    private fun attachBitmap(image: Bitmap) {
+        bitmap = image
+        imageIsSelected = true
+        selectedImageType = "jpg"
+
+        attachedImage?.visibility = View.VISIBLE
+        selectedImage?.setImageBitmap(roundCorners(resizeBitmapToMaxHeight(image, 100)))
+
+        val outputStream = ByteArrayOutputStream()
+        image.compress(Bitmap.CompressFormat.JPEG, 85, outputStream)
+        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
+
+        baseImageString = "data:image/jpeg;base64,$base64Image"
+
+        mContext?.getSharedPreferences("imageTemp", Context.MODE_PRIVATE)?.edit {
+            putString("image", baseImageString)
+            putString("type", selectedImageType)
+        }
     }
 
     private fun clearImageTemp() {
@@ -2861,7 +3036,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {

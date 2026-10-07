@@ -161,6 +161,42 @@ class Preferences private constructor(private var preferences: SharedPreferences
     }
 
     /**
+     * Show reasoning returned by the API endpoint
+     *
+     * @return show reasoning
+     * */
+    fun getShowReasoning() : Boolean {
+        return getGlobalBoolean("show_reasoning", true)
+    }
+
+    /**
+     * Set show reasoning
+     *
+     * @param state show reasoning
+     * */
+    fun setShowReasoning(state: Boolean) {
+        putGlobalBoolean("show_reasoning", state, true)
+    }
+
+    /**
+     * Automatically attach current screen when assistant is invoked
+     *
+     * @return auto attach screen
+     * */
+    fun getAutoAttachScreen() : Boolean {
+        return getGlobalBoolean("auto_attach_screen", false)
+    }
+
+    /**
+     * Set auto attach screen
+     *
+     * @param state auto attach screen
+     * */
+    fun setAutoAttachScreen(state: Boolean) {
+        putGlobalBoolean("auto_attach_screen", state, false)
+    }
+
+    /**
      * Retrieves the model name from the shared preferences.
      *
      * @return The model name or "gpt-4o" if not found. GPT4-o is now much more capable than gpt 3.5 and 15x cheaper.
