@@ -6,6 +6,11 @@ on:
       - claude/app-feature-additions-4ltaoq
   workflow_dispatch:
 
+# A newer push makes an older, still running build obsolete
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -19,11 +24,14 @@ jobs:
           java-version: 21
 
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          # Caches are only written on the default branch unless this is disabled
+          cache-read-only: false
 
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon --stacktrace assembleDebug
+          ./gradlew --no-daemon --stacktrace --build-cache assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
