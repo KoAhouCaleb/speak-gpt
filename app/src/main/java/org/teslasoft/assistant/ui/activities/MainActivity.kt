@@ -57,9 +57,7 @@ import com.google.android.material.elevation.SurfaceColors
 import com.google.android.material.navigation.NavigationBarView
 import org.teslasoft.assistant.R
 import org.teslasoft.assistant.preferences.ApiEndpointPreferences
-import org.teslasoft.assistant.preferences.DeviceInfoProvider
 import org.teslasoft.assistant.preferences.GlobalPreferences
-import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.preferences.Preferences
 import org.teslasoft.assistant.pwa.PWAActivity
 import org.teslasoft.assistant.theme.ThemeManager
@@ -219,19 +217,16 @@ class MainActivity : FragmentActivity() {
                     ComponentName(this, "org.teslasoft.assistant.pwa.PWAActivity"),
                     PackageManager.COMPONENT_ENABLED_STATE_DISABLED, PackageManager.DONT_KILL_APP
                 )
-                Logger.log(this, "event", "ComponentManager", "info", "Component disabled: org.teslasoft.assistant.pwa.PWAActivity")
             } else {
                 btnTogglePWA?.text = "Disable PWA"
                 pm.setComponentEnabledSetting(
                     ComponentName(this, "org.teslasoft.assistant.pwa.PWAActivity"),
                     PackageManager.COMPONENT_ENABLED_STATE_ENABLED, PackageManager.DONT_KILL_APP
                 )
-                Logger.log(this, "event", "ComponentManager", "info", "Component enabled: org.teslasoft.assistant.pwa.PWAActivity")
             }
         }
 
         Thread {
-            DeviceInfoProvider.assignInstallationId(this)
 
             runOnUiThread {
                 navigationBar!!.setOnItemSelectedListener(NavigationBarView.OnItemSelectedListener { item: MenuItem ->
@@ -261,8 +256,6 @@ class MainActivity : FragmentActivity() {
                     return@OnItemSelectedListener false
                 })
 
-                val installationId = DeviceInfoProvider.getInstallationId(this)
-                val androidId = DeviceInfoProvider.getAndroidId(this)
 
                 if (preferences!!.getDebugMode()) {
                     btnDebugger?.visibility = View.VISIBLE
@@ -306,7 +299,6 @@ class MainActivity : FragmentActivity() {
                     val sha1 = signature.getCertificateFingerprint("SHA1")
                     val sha256 = signature.getCertificateFingerprint("SHA256")
 
-                    devIds?.text = "${devIds?.text}\n\nInstallation ID: $installationId\nAndroid ID: $androidId"
                     devIds?.text = "${devIds?.text}\nApp Version: ${packageManager.getPackageInfo(packageName, 0).versionName} (${packageManager.getPackageInfo(packageName, 0).versionCode})"
                     devIds?.text = "${devIds?.text}\nTeslasoft ID version: ${SystemInfo.NAME} ${SystemInfo.VERSION} (${SystemInfo.VERSION_CODE})"
                     devIds?.text = "${devIds?.text}\nKotlin language version: ${KotlinVersion.CURRENT}"

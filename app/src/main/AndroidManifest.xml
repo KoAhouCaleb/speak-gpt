@@ -314,13 +314,6 @@
         </activity>
 
         <activity
-            android:name=".ui.activities.LogsActivity"
-            android:exported="false"
-            android:label="@string/title_logs"
-            android:launchMode="singleTask">
-        </activity>
-
-        <activity
             android:name=".ui.debug.DebugActivity"
             android:exported="false"
             android:enabled="false"
