@@ -40,7 +40,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
 
     companion object {
         // Maximum time to wait for the system to deliver the screenshot / assist data
-        private const val ASSIST_DATA_TIMEOUT_MS = 2000L
+        private const val ASSIST_DATA_TIMEOUT_MS = 3000L
     }
 
     private val handler = Handler(Looper.getMainLooper())
@@ -59,7 +59,10 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     // Assist data can be delivered before onShow(), so remember what already arrived
     private var screenshotReceived = false
     private var assistDataReceived = false
-    private val fallback = Runnable { launchAssistant() }
+    private val fallback = Runnable {
+        log("Timed out waiting for screen data (waiting for re-show: $awaitingReshow, screenshot: $waitingForScreenshot, text: $waitingForAssistData)")
+        launchAssistant()
+    }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
@@ -88,6 +91,13 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
                 awaitingReshow = false
                 log("Failed to request screen data: ${e.message}")
             }
+        }
+
+        // A further onShow() without the screen flags is not the answer to our request
+        // (the system may deliver the original show twice). Keep waiting until the fallback fires.
+        if (awaitingReshow && showFlags and contextFlags == 0) {
+            log("Session shown again without screen request (flags: $showFlags), still waiting for requested data")
+            return
         }
 
         awaitingReshow = false
