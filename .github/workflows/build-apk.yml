@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - claude/app-feature-additions-4ltaoq
+      - claude/tool-calling-implementation-2syg9t
   workflow_dispatch:
 
 # A newer push makes an older, still running build obsolete

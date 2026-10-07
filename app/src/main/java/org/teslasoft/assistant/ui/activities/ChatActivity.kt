@@ -171,6 +171,9 @@ import org.teslasoft.assistant.ui.fragments.dialogs.QuickSettingsBottomSheetDial
 import org.teslasoft.assistant.ui.onboarding.WelcomeActivity
 import org.teslasoft.assistant.ui.permission.CameraPermissionActivity
 import org.teslasoft.assistant.ui.permission.MicrophonePermissionActivity
+import org.teslasoft.assistant.tools.AssistantTools
+import org.teslasoft.assistant.tools.ToolHost
+import org.teslasoft.assistant.tools.ToolPermissionRequester
 import org.teslasoft.assistant.util.ChatStreamClient
 import org.teslasoft.assistant.util.SpeechServerClient
 import org.teslasoft.assistant.util.Hash
@@ -192,6 +195,7 @@ import kotlin.time.Duration.Companion.seconds
 import androidx.core.content.edit
 import androidx.core.view.WindowInsetsCompat
 import kotlinx.coroutines.flow.flowOn
+import androidx.lifecycle.Lifecycle
 import okio.FileSystem
 import okio.Path.Companion.toPath
 
@@ -2156,93 +2160,8 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 progress?.visibility = View.GONE
                 messageInput?.requestFocus()
             } else {
-                val functionCallingEnabled: Boolean = preferences!!.getFunctionCalling()
-
-                if (functionCallingEnabled && openAIKey != null) {
-                    val cm = mutableListOf(
-                        ChatMessage(
-                            role = ChatRole.User,
-                            content = request
-                        )
-                    )
-
-                    val functionRequest = chatCompletionRequest {
-                        model = ModelId("gpt-4o")
-                        messages = cm
-
-                        tools {
-                            function(
-                                name = "generateImage",
-                                description = "Generate an image based on the entered prompt"
-                            ) {
-                                put("type", "object")
-                                putJsonObject("properties") {
-                                    putJsonObject("prompt") {
-                                        put("type", "string")
-                                        put("description", "The prompt for image generation")
-                                    }
-                                }
-                                putJsonArray("required") {
-                                    add("prompt")
-                                }
-                            }
-
-                            function(
-                                name = "searchAtInternet",
-                                description = "Search the Internet",
-                            ) {
-                                put("type", "object")
-                                putJsonObject("properties") {
-                                    putJsonObject("prompt") {
-                                        put("type", "string")
-                                        put("description", "Search query")
-                                    }
-                                }
-                                putJsonArray("required") {
-                                    add("prompt")
-                                }
-                            }
-                        }
-
-                        toolChoice = ToolChoice.Auto
-                    }
-
-                    val response1 = openAIAI?.chatCompletion(functionRequest)
-
-                    val message = response1?.choices?.first()?.message
-
-                    if (message?.toolCalls != null) {
-                        val toolsCalls = message.toolCalls!!
-
-                        if (toolsCalls.isEmpty()) {
-                            regularGPTResponse(shouldPronounce)
-                        } else {
-                            for (toolCall in toolsCalls) {
-                                require(toolCall is ToolCall.Function) { "Tool call is not a function" }
-                                toolCall.execute()
-                            }
-
-                            // Put timestamp to chat to sort chats by last message
-                            ChatPreferences.getChatPreferences().putTimestampToChatById(this, chatId)
-                        }
-                    } else {
-                        regularGPTResponse(shouldPronounce)
-                    }
-                } else if (functionCallingEnabled) {
-                    putMessage("Function calling requires OpenAI endpoint which is missing on your device. Please go to the settings and add OpenAI endpoint or disable Function Calling. OpenAI base url (host) is: https://api.openai.com/v1/ (don't forget to add slash at the end otherwise you will receive an error).", true)
-                    saveSettings()
-                    restoreUIState()
-                    MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                        .setTitle("Unsupported feature")
-                        .setMessage("Function calling feature is unavailable because it requires OpenAI endpoint. Would you like to disable this feature?")
-                        .setPositiveButton("Disable") { _, _ -> run {
-                            preferences?.setFunctionCalling(false)
-                        }}
-                        .setNegativeButton("Cancel") { _, _ -> }
-                        .show()
-                } else {
-                    regularGPTResponse(shouldPronounce)
-                }
+                // Tools (function calling) are handled in regularGPTResponse
+                regularGPTResponse(shouldPronounce)
             }
         } catch (_: CancellationException) {
             calculateCost()
@@ -2313,39 +2232,28 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
         }
     }
 
-    private val availableFunctions = mapOf("generateImage" to ::generateImage, "searchAtInternet" to ::searchAtInternet)
+    private val toolPermissionRequester = ToolPermissionRequester(this)
 
-    private fun ToolCall.Function.execute() {
-        val functionToCall = availableFunctions[function.name] ?: error("Function ${function.name} not found")
-        val functionArgs = function.argumentsAsJson()
-        functionToCall(functionArgs)
-    }
+    private val toolHost = object : ToolHost {
+        override val hostActivity: FragmentActivity
+            get() = this@ChatActivity
 
-    private fun generateImage(args: JsonObject) {
-        val prompt = args.getValue("prompt").jsonPrimitive.content
+        // A screenshot would only show this chat
+        override val canCaptureScreen: Boolean = false
 
-        runOnUiThread {
+        override fun isInForeground(): Boolean = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+
+        override suspend fun <T> withUiHidden(block: suspend () -> T): T = block()
+
+        override suspend fun requestPermissions(permissions: Array<String>): Boolean {
+            return toolPermissionRequester.request(this@ChatActivity, permissions)
+        }
+
+        override fun generateImage(prompt: String) {
             btnMicro?.isEnabled = false
             btnSend?.isEnabled = false
             progress?.visibility = View.VISIBLE
-        }
-
-        CoroutineScope(Dispatchers.Main).launch {
             generateImages(prompt)
-        }
-    }
-
-    private fun searchAtInternet(args: JsonObject) {
-        val prompt = args.getValue("prompt").jsonPrimitive.content
-
-        runOnUiThread {
-            btnMicro?.isEnabled = false
-            btnSend?.isEnabled = false
-            progress?.visibility = View.VISIBLE
-        }
-
-        CoroutineScope(Dispatchers.Main).launch {
-            searchInternet(prompt)
         }
     }
 
@@ -2369,58 +2277,104 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
         msgs.addAll(chatMessages)
 
-        val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
-            ChatCompletionRequest(
-                model = ModelId(model),
-                temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
-                topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
-                frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
-                presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble(),
-                seed = if (preferences!!.getSeed() != "") preferences!!.getSeed().toInt() else null,
-                logitBias = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) null else logitBiasPreferences?.getLogitBiasesMap(),
-                messages = msgs
-            )
-        } else {
-            ChatCompletionRequest(
-                model = ModelId(model),
-                temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
-                topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
-                frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
-                presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble(),
-                seed = if (preferences!!.getSeed() != "") preferences!!.getSeed().toInt() else null,
-                messages = msgs
-            )
-        }
-
-        val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
-        var rawResponse = ""
+        // Tools offered to the model (null if function calling is off or every tool is disabled)
+        val requestTools = if (preferences!!.getFunctionCalling()) AssistantTools.enabledTools(this, toolHost) else null
+        var requestToolChoice: ToolChoice? = if (requestTools != null) ToolChoice.Auto else null
+        var toolLog = ""
+        var toolRounds = 0
+        val afterTurn = arrayListOf<() -> Unit>()
         var rawReasoning = ""
 
-        scroll(true)
+        while (true) {
+            val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
+                ChatCompletionRequest(
+                    model = ModelId(model),
+                    temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
+                    topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
+                    frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
+                    presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble(),
+                    seed = if (preferences!!.getSeed() != "") preferences!!.getSeed().toInt() else null,
+                    logitBias = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) null else logitBiasPreferences?.getLogitBiasesMap(),
+                    messages = msgs,
+                    tools = requestTools,
+                    toolChoice = requestToolChoice
+                )
+            } else {
+                ChatCompletionRequest(
+                    model = ModelId(model),
+                    temperature = if (model.contains("gpt-5") || model.contains("o1") || model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble(),
+                    topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble(),
+                    frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble(),
+                    presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble(),
+                    seed = if (preferences!!.getSeed() != "") preferences!!.getSeed().toInt() else null,
+                    messages = msgs,
+                    tools = requestTools,
+                    toolChoice = requestToolChoice
+                )
+            }
 
-        completions.flowOn(Dispatchers.IO).collect { v ->
-            run {
-                if (!currentCoroutineContext().isActive) throw CancellationException()
-                else if (v.content != null || v.reasoning != null) {
-                    rawResponse += v.content ?: ""
-                    rawReasoning += v.reasoning ?: ""
-                    val parsed = ChatStreamClient.splitThinkTags(rawResponse)
-                    response = parsed.second
-                    val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
-                    if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
-                    messages[messages.size - 1]["message"] = response
-                    if (messages.size > 2) {
-                        adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
-                    } else {
-                        adapter?.notifyItemChanged(messages.size - 1)
+            val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+            var rawResponse = ""
+            val toolCalls = ChatStreamClient.ToolCallAccumulator()
+            response = ""
+
+            scroll(true)
+
+            completions.flowOn(Dispatchers.IO).collect { v ->
+                run {
+                    if (!currentCoroutineContext().isActive) throw CancellationException()
+                    toolCalls.add(v.toolCalls)
+                    if (v.content != null || v.reasoning != null) {
+                        rawResponse += v.content ?: ""
+                        rawReasoning += v.reasoning ?: ""
+                        val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                        response = parsed.second
+                        val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                        if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
+                        messages[messages.size - 1]["message"] = toolLog + response
+                        if (messages.size > 2) {
+                            adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
+                        } else {
+                            adapter?.notifyItemChanged(messages.size - 1)
+                        }
+                        scroll(false)
+                        saveSettings()
                     }
-                    scroll(false)
-                    saveSettings()
                 }
             }
+
+            if (requestTools == null || toolCalls.isEmpty()) break
+
+            // Run the requested tools and send the results back to the model
+            val calls = toolCalls.build()
+            msgs.add(ChatMessage(role = ChatRole.Assistant, content = response.ifBlank { null }, toolCalls = calls))
+
+            val outcome = AssistantTools.execute(this, toolHost, calls)
+            msgs.addAll(outcome.messages)
+
+            if (response.isNotBlank()) toolLog += response.trim() + "\n\n"
+            toolLog += outcome.log.joinToString("\n\n") + "\n\n"
+            response = ""
+
+            messages[messages.size - 1]["message"] = toolLog
+            if (messages.size > 2) {
+                adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
+            } else {
+                adapter?.notifyItemChanged(messages.size - 1)
+            }
+            saveSettings()
+
+            // e.g. image generation shows its own message, so the turn ends here
+            if (outcome.afterTurn.isNotEmpty()) {
+                afterTurn.addAll(outcome.afterTurn)
+                break
+            }
+
+            toolRounds++
+            if (outcome.ignored || toolRounds >= AssistantTools.MAX_ROUNDS) requestToolChoice = ToolChoice.None
         }
 
-        messages[messages.size - 1]["message"] = "$response\n"
+        messages[messages.size - 1]["message"] = "$toolLog$response\n"
         if (messages.size > 2) {
             adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
         } else {
@@ -2442,6 +2396,8 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
         // Put timestamp to chat to sort chats by last message
         ChatPreferences.getChatPreferences().putTimestampToChatById(this, chatId)
 
+        afterTurn.forEach { it() }
+
         if (messageCounter == 0) {
             val chatName = ChatPreferences.getChatPreferences().getChatName(this, chatId)
 
@@ -2451,7 +2407,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 progress?.visibility = View.GONE
                 messageInput?.requestFocus()
 
-                val m = ArrayList(msgs.filter { it.role != ChatRole.System })
+                val m = ArrayList(msgs.filter { it.role != ChatRole.System && it.role != ChatRole.Tool && it.toolCalls == null })
 
                 m.add(
                     ChatMessage(

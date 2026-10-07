@@ -553,7 +553,68 @@
     <string name="label_screen_unavailable">Screen not available</string>
     <string name="btn_open_accessibility_settings">Open accessibility settings</string>
     <string name="accessibility_service_label">SpeakGPT screen context</string>
-    <string name="accessibility_service_description">Lets SpeakGPT capture a screenshot and the text on screen at the moment you open the assistant, so you can attach the current screen to your question. Captures are stored temporarily on this device, deleted when the assistant closes, and only sent to your AI endpoint when you attach them. Nothing is captured while the assistant is closed.</string>
+    <string name="accessibility_service_description">Lets SpeakGPT capture a screenshot and the text on screen at the moment you open the assistant, so you can attach the current screen to your question. It is also used by the screenshot and QR code tools while the assistant is open. Captures are stored temporarily on this device, deleted when the assistant closes, and only sent to your AI endpoint when you attach them or the assistant uses the screenshot tool. Nothing is captured while the assistant is closed.</string>
     <string name="msg_screen_enable_accessibility">To attach the screen, enable the \"SpeakGPT screen context\" accessibility service in Settings, Accessibility (it may be listed under Downloaded apps). If Android says the setting is restricted, open App info for SpeakGPT, tap the menu in the top corner and choose \"Allow restricted settings\" first. Then close and reopen the assistant.</string>
     <string name="msg_screen_capture_failed">The screen could not be captured. Some apps (for example banking apps) block screenshots and screen reading. Details are in Settings, Event log (entries tagged ScreenCapture).</string>
+
+    <!-- Tools -->
+    <string name="title_tools">Tools</string>
+    <string name="tile_tools_desc">Choose which tools the assistant can use and whether it must ask first. Tools are used when function calling is on.</string>
+    <string name="tools_settings_hint">Disable: the assistant can not use the tool. Confirm: you are asked every time. Auto: the tool runs without asking. Tool calls are ignored while SpeakGPT is not in the foreground.</string>
+    <string name="tools_screen_hint">Screen tools only work in the assistant overlay and need the "SpeakGPT screen context" accessibility service (Android 11 or newer).</string>
+    <string name="tool_mode_disabled">Disable</string>
+    <string name="tool_mode_confirm">Confirm</string>
+    <string name="tool_mode_auto">Auto</string>
+    <string name="tool_allow">Allow</string>
+    <string name="tool_deny">Deny</string>
+    <string name="tool_log_line">&gt; **%1$s:** %2$s</string>
+
+    <string name="tool_take_screenshot">Take screenshot</string>
+    <string name="tool_take_screenshot_desc">Captures the app behind the assistant and sends the image to the model.</string>
+    <string name="tool_read_qr_code">Read QR code</string>
+    <string name="tool_read_qr_code_desc">Reads the text of QR codes on the screen. Decoding happens on the device.</string>
+    <string name="tool_list_apps">List apps</string>
+    <string name="tool_list_apps_desc">Sends the names of the installed apps to the model.</string>
+    <string name="tool_open_app">Open app</string>
+    <string name="tool_open_app_desc">Opens an installed app by name.</string>
+    <string name="tool_start_navigation">Start navigation</string>
+    <string name="tool_start_navigation_desc">Starts turn-by-turn navigation in Google Maps.</string>
+    <string name="tool_make_call">Make a call</string>
+    <string name="tool_make_call_desc">Calls a contact or a phone number. Needs the contacts and phone permissions.</string>
+    <string name="tool_send_text">Send a text</string>
+    <string name="tool_send_text_desc">Sends an SMS to a contact or a phone number. Needs the contacts and SMS permissions.</string>
+    <string name="tool_open_webpage">Open web page</string>
+    <string name="tool_open_webpage_desc">Opens a web page in the default browser.</string>
+    <string name="tool_search_internet">Search the Internet</string>
+    <string name="tool_search_internet_desc">Opens a Google search in the default browser.</string>
+    <string name="tool_generate_image">Generate image</string>
+    <string name="tool_generate_image_desc">Generates an image with the selected image model.</string>
+
+    <string name="tool_confirm_screenshot">Take a screenshot and send it to the model?</string>
+    <string name="tool_confirm_qr_code">Read QR codes on the screen?</string>
+    <string name="tool_confirm_list_apps">Send the list of installed apps to the model?</string>
+    <string name="tool_confirm_open_app">Open %1$s?</string>
+    <string name="tool_confirm_navigation">Start navigation to %1$s?</string>
+    <string name="tool_confirm_call">Call %1$s?</string>
+    <string name="tool_confirm_text">Send to %1$s:
+
+%2$s</string>
+    <string name="tool_confirm_webpage">Open %1$s?</string>
+    <string name="tool_confirm_generate_image">Generate an image of: %1$s?</string>
+
+    <string name="tool_status_done">done</string>
+    <string name="tool_status_started">started</string>
+    <string name="tool_status_failed">failed</string>
+    <string name="tool_status_declined">declined</string>
+    <string name="tool_status_ignored">ignored (SpeakGPT was not in the foreground)</string>
+    <string name="tool_status_unavailable">not available</string>
+    <string name="tool_status_not_found">nothing found</string>
+    <string name="tool_status_found">found %1$d</string>
+    <string name="tool_status_apps">%1$d apps</string>
+    <string name="tool_status_ambiguous">several matches</string>
+    <string name="tool_status_needs_input">needs more details</string>
+    <string name="tool_status_permission_denied">permission denied</string>
+    <string name="tool_status_opened">opened %1$s</string>
+    <string name="tool_status_calling">calling %1$s</string>
+    <string name="tool_status_sent">sent to %1$s</string>
 </resources>

@@ -17,6 +17,9 @@
 package org.teslasoft.assistant.util
 
 import com.aallam.openai.api.chat.ChatCompletionRequest
+import com.aallam.openai.api.chat.FunctionCall
+import com.aallam.openai.api.chat.ToolCall
+import com.aallam.openai.api.chat.ToolId
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -52,8 +55,43 @@ object ChatStreamClient {
      *
      * @param content Regular answer text (may be null).
      * @param reasoning Reasoning text (may be null).
+     * @param toolCalls Fragments of tool calls (empty if none).
      * */
-    data class Delta(val content: String?, val reasoning: String?)
+    data class Delta(val content: String?, val reasoning: String?, val toolCalls: List<ToolCallDelta> = emptyList())
+
+    /**
+     * Fragment of a streamed tool call. The id and name usually arrive in the first fragment,
+     * the arguments are split across many fragments with the same index.
+     * */
+    data class ToolCallDelta(val index: Int, val id: String?, val name: String?, val arguments: String?)
+
+    /** Joins streamed tool call fragments into complete tool calls. */
+    class ToolCallAccumulator {
+        private class Partial(var id: String? = null, var name: String? = null, val arguments: StringBuilder = StringBuilder())
+
+        private val partials = sortedMapOf<Int, Partial>()
+
+        fun add(deltas: List<ToolCallDelta>) {
+            for (delta in deltas) {
+                val partial = partials.getOrPut(delta.index) { Partial() }
+                if (!delta.id.isNullOrEmpty()) partial.id = delta.id
+                if (!delta.name.isNullOrEmpty()) partial.name = delta.name
+                if (delta.arguments != null) partial.arguments.append(delta.arguments)
+            }
+        }
+
+        fun isEmpty(): Boolean = partials.values.none { !it.name.isNullOrEmpty() }
+
+        fun build(): List<ToolCall.Function> {
+            return partials.entries.filter { !it.value.name.isNullOrEmpty() }.map { (index, partial) ->
+                ToolCall.Function(
+                    // Some servers omit the id
+                    id = ToolId(partial.id ?: "call_$index"),
+                    function = FunctionCall(partial.name, partial.arguments.toString().ifBlank { "{}" })
+                )
+            }
+        }
+    }
 
     private val json = Json {
         isLenient = true
@@ -136,6 +174,7 @@ object ChatStreamClient {
         val delta = runCatching { choices[0].jsonObject["delta"]?.jsonObject }.getOrNull() ?: return null
 
         val content = delta["content"].stringOrNull()
+        val toolCalls = parseToolCalls(delta["tool_calls"])
         var reasoning: String? = null
 
         for (key in reasoningKeys) {
@@ -146,9 +185,29 @@ object ChatStreamClient {
             }
         }
 
-        if (content.isNullOrEmpty() && reasoning.isNullOrEmpty()) return null
+        if (content.isNullOrEmpty() && reasoning.isNullOrEmpty() && toolCalls.isEmpty()) return null
 
-        return Delta(content, reasoning)
+        return Delta(content, reasoning, toolCalls)
+    }
+
+    private fun parseToolCalls(element: JsonElement?): List<ToolCallDelta> {
+        val array = element?.let { runCatching { it.jsonArray }.getOrNull() } ?: return emptyList()
+
+        return array.mapIndexedNotNull { position, item ->
+            val call = runCatching { item.jsonObject }.getOrNull() ?: return@mapIndexedNotNull null
+            val function = call["function"]?.let { runCatching { it.jsonObject }.getOrNull() }
+
+            ToolCallDelta(
+                // Some servers send complete tool calls without an index
+                index = call["index"].stringOrNull()?.toIntOrNull() ?: position,
+                id = call["id"].stringOrNull(),
+                name = function?.get("name").stringOrNull(),
+                arguments = function?.get("arguments")?.let { args ->
+                    // A few servers send the arguments as an object instead of a string
+                    if (args is JsonObject) args.toString() else args.stringOrNull()
+                }
+            )
+        }
     }
 
     private fun JsonElement?.stringOrNull(): String? {
