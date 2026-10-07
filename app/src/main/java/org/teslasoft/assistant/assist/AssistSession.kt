@@ -52,6 +52,10 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     // Set after asking the system again for screen data (see onShow)
     private var contextRequested = false
 
+    // True between re-requesting screen data and the re-shown session's onShow(). Empty results
+    // arriving in this window belong to the original launch and must not end the wait.
+    private var awaitingReshow = false
+
     // Assist data can be delivered before onShow(), so remember what already arrived
     private var screenshotReceived = false
     private var assistDataReceived = false
@@ -71,6 +75,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         // screen text, still honouring the user's "Use screen and app data" setting.
         if (showFlags and contextFlags == 0 && !contextRequested) {
             contextRequested = true
+            awaitingReshow = true
             log("Session shown without screen request (flags: $showFlags), requesting screen data")
 
             handler.removeCallbacks(fallback)
@@ -80,9 +85,12 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
                 show(args ?: Bundle(), showFlags or contextFlags)
                 return
             } catch (e: Exception) {
+                awaitingReshow = false
                 log("Failed to request screen data: ${e.message}")
             }
         }
+
+        awaitingReshow = false
 
         val screenshotRequested = showFlags and SHOW_WITH_SCREENSHOT != 0
         val assistDataRequested = showFlags and SHOW_WITH_ASSIST != 0
@@ -105,6 +113,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         handler.removeCallbacks(fallback)
         shown = false
         contextRequested = false
+        awaitingReshow = false
         screenshotReceived = false
         assistDataReceived = false
     }
@@ -112,18 +121,22 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     @RequiresApi(Build.VERSION_CODES.Q)
     override fun onHandleAssist(state: VoiceInteractionSession.AssistState) {
         // Index 0 is the focused activity. Other indexes are secondary (multi-window) activities.
-        if (state.index == 0) {
-            saveStructure(state.assistStructure)
-            if (shown) assistDataReceived = true
-            waitingForAssistData = false
-            maybeLaunch()
-        }
+        if (state.index == 0) handleAssistStructure(state.assistStructure)
     }
 
     @Deprecated("Deprecated in Java")
     @Suppress("DEPRECATION")
     override fun onHandleAssist(data: Bundle?, structure: AssistStructure?, content: AssistContent?) {
         // Called only on Android 9 (the AssistState overload above is used on Android 10+)
+        handleAssistStructure(structure)
+    }
+
+    private fun handleAssistStructure(structure: AssistStructure?) {
+        if (awaitingReshow && structure == null) {
+            log("Ignoring empty screen text from the original launch, waiting for requested data")
+            return
+        }
+
         saveStructure(structure)
         if (shown) assistDataReceived = true
         waitingForAssistData = false
@@ -131,6 +144,11 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     override fun onHandleScreenshot(screenshot: Bitmap?) {
+        if (awaitingReshow && screenshot == null) {
+            log("Ignoring empty screenshot from the original launch, waiting for requested data")
+            return
+        }
+
         log(if (screenshot == null) "No screenshot provided by the system" else "Screenshot received (${screenshot.width}x${screenshot.height})")
 
         if (screenshot != null) {
@@ -189,7 +207,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     private fun maybeLaunch() {
-        if (shown && !waitingForScreenshot && !waitingForAssistData) launchAssistant()
+        if (shown && !awaitingReshow && !waitingForScreenshot && !waitingForAssistData) launchAssistant()
     }
 
     private fun launchAssistant() {
