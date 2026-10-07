@@ -183,8 +183,8 @@ import java.util.Optional
 class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListener {
 
     companion object {
-        /** Set by AssistSession when a screenshot or screen text was captured. */
-        const val EXTRA_SCREEN_CONTEXT = "SCREEN_CONTEXT"
+        /** Set by AssistSession, which captures the screen before opening the assistant. */
+        const val EXTRA_FROM_ASSIST_SESSION = "FROM_ASSIST_SESSION"
     }
 
     // Init UI
@@ -366,7 +366,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                         // Step 3: Convert the Bitmap to a Base64-encoded string
                         val outputStream = ByteArrayOutputStream()
                         bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                         // Step 4: Generate the data URL
                         val imageType = when(format) {
@@ -1157,7 +1157,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
                     Thread {
                         bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                        val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                         // Step 4: Generate the data URL
                         val imageType = when (format) {
@@ -1438,7 +1438,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
                 val reqList: ArrayList<ContentPart> = ArrayList()
                 reqList.add(TextPart(request))
-                reqList.add(ImagePart(baseImageString!!))
+                // Some servers (e.g. llama.cpp) stop decoding base64 at the first line break
+                reqList.add(ImagePart(baseImageString!!.filterNot { it.isWhitespace() }))
                 val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
                     ChatCompletionRequest(
                         model = ModelId(model),
@@ -2348,7 +2349,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {
@@ -2615,21 +2616,62 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         hideKeyboard()
     }
 
-    private fun initScreenContext(savedInstanceState: Bundle?) {
-        val context = mContext ?: return
-        val hasScreenContext = (mContext as Activity?)?.intent?.getBooleanExtra(EXTRA_SCREEN_CONTEXT, false) == true && ScreenContextStore.hasContext(context)
+    private fun isFromAssistSession(): Boolean {
+        return (mContext as Activity?)?.intent?.getBooleanExtra(EXTRA_FROM_ASSIST_SESSION, false) == true
+    }
 
-        if (!hasScreenContext) {
-            btnAttachScreen?.visibility = View.GONE
-            return
+    private fun hasScreenContext(): Boolean {
+        val context = mContext ?: return false
+        return isFromAssistSession() && ScreenContextStore.hasContext(context)
+    }
+
+    private fun initScreenContext(savedInstanceState: Bundle?) {
+        // Always visible so the user can find out why the screen is unavailable
+        btnAttachScreen?.visibility = View.VISIBLE
+        btnAttachScreen?.setOnClickListener {
+            if (hasScreenContext()) {
+                attachScreenContext()
+            } else {
+                explainScreenContextUnavailable()
+            }
         }
 
-        btnAttachScreen?.visibility = View.VISIBLE
-        btnAttachScreen?.setOnClickListener { attachScreenContext() }
-
-        if (savedInstanceState == null && preferences?.getAutoAttachScreen() == true) {
+        if (savedInstanceState == null && preferences?.getAutoAttachScreen() == true && hasScreenContext()) {
             attachScreenContext()
         }
+    }
+
+    private fun isDefaultAssistant(context: Context): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            (context.getSystemService(Context.ROLE_SERVICE) as android.app.role.RoleManager).isRoleHeld(android.app.role.RoleManager.ROLE_ASSISTANT)
+        } else {
+            true
+        }
+    }
+
+    private fun explainScreenContextUnavailable() {
+        val context = mContext ?: return
+
+        val message = when {
+            !isDefaultAssistant(context) -> R.string.msg_screen_not_default_assistant
+            !isFromAssistSession() -> R.string.msg_screen_legacy_launch
+            else -> R.string.msg_screen_not_provided
+        }
+
+        MaterialAlertDialogBuilder(context, R.style.App_MaterialAlertDialog)
+            .setTitle(R.string.label_screen_unavailable)
+            .setMessage(message)
+            .setPositiveButton(R.string.btn_open_assistant_settings) { _, _ ->
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_VOICE_INPUT_SETTINGS))
+                } catch (_: Exception) {
+                    try {
+                        startActivity(Intent(android.provider.Settings.ACTION_SETTINGS))
+                    } catch (_: Exception) { /* ignored */ }
+                }
+            }
+            .setNegativeButton(R.string.btn_close) { _, _ -> }
+            .show()
     }
 
     /**
@@ -3003,7 +3045,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.DEFAULT)
+                val base64Image = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {

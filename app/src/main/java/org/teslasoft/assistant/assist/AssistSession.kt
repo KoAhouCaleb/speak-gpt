@@ -28,6 +28,7 @@ import android.os.Looper
 import android.service.voice.VoiceInteractionSession
 import android.util.Log
 import androidx.annotation.RequiresApi
+import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.ui.assistant.AssistantActivity
 import org.teslasoft.assistant.ui.fragments.AssistantFragment
 import org.teslasoft.assistant.util.ScreenContextStore
@@ -56,6 +57,8 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
 
         waitingForScreenshot = showFlags and SHOW_WITH_SCREENSHOT != 0
         waitingForAssistData = showFlags and SHOW_WITH_ASSIST != 0
+
+        log("Session shown (screenshot requested: $waitingForScreenshot, screen text requested: $waitingForAssistData)")
 
         if (!waitingForScreenshot && !waitingForAssistData) {
             launchAssistant()
@@ -89,6 +92,8 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     override fun onHandleScreenshot(screenshot: Bitmap?) {
+        log(if (screenshot == null) "No screenshot provided by the system" else "Screenshot received (${screenshot.width}x${screenshot.height})")
+
         if (screenshot != null) {
             try {
                 ScreenContextStore.saveScreenshot(context, screenshot)
@@ -102,7 +107,10 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     private fun saveStructure(structure: AssistStructure?) {
-        if (structure == null) return
+        if (structure == null) {
+            log("No screen text provided by the system")
+            return
+        }
 
         try {
             val builder = StringBuilder()
@@ -113,6 +121,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
             }
 
             ScreenContextStore.saveText(context, builder.toString().trim())
+            log("Screen text received (${builder.length} characters)")
         } catch (e: Exception) {
             Log.e("AssistSession", "Failed to read screen text", e)
         }
@@ -132,6 +141,12 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         }
     }
 
+    private fun log(message: String) {
+        try {
+            Logger.log(context, "event", "AssistSession", "info", message)
+        } catch (_: Exception) { /* logging must never break the assistant */ }
+    }
+
     private fun maybeLaunch() {
         if (!waitingForScreenshot && !waitingForAssistData) launchAssistant()
     }
@@ -141,9 +156,11 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         launched = true
         handler.removeCallbacks(fallback)
 
+        log("Opening assistant (screen context available: ${ScreenContextStore.hasContext(context)})")
+
         val intent = Intent(context, AssistantActivity::class.java)
             .setAction(Intent.ACTION_ASSIST)
-            .putExtra(AssistantFragment.EXTRA_SCREEN_CONTEXT, ScreenContextStore.hasContext(context))
+            .putExtra(AssistantFragment.EXTRA_FROM_ASSIST_SESSION, true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
         try {

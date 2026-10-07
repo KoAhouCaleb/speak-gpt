@@ -521,7 +521,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {
@@ -1239,7 +1239,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                         // Step 3: Convert the Bitmap to a Base64-encoded string
                         val outputStream = ByteArrayOutputStream()
                         bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                        val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                        val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
 
                         // Step 4: Generate the data URL
                         val imageType = when(format) {
@@ -2002,7 +2002,8 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
                 val reqList: ArrayList<ContentPart> = arrayListOf()
                 reqList.add(TextPart(request))
-                reqList.add(ImagePart(baseImageString!!))
+                // Some servers (e.g. llama.cpp) stop decoding base64 at the first line break
+                reqList.add(ImagePart(baseImageString!!.filterNot { it.isWhitespace() }))
                 val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
                     ChatCompletionRequest(
                         model = ModelId(model),
@@ -2977,7 +2978,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 // Step 3: Convert the Bitmap to a Base64-encoded string
                 val outputStream = ByteArrayOutputStream()
                 bitmap!!.compress(format, 100, outputStream) // Note: Adjust the quality as necessary
-                val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.DEFAULT)
+                val base64Image = Base64.encodeToString(outputStream.toByteArray(), Base64.NO_WRAP)
 
                 // Step 4: Generate the data URL
                 val imageType = when(format) {
