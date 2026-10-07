@@ -1,5 +1,0 @@
-<lint>
-    <issue id="ExpiredTargetApi">
-        <ignore path="build.gradle"/>
-    </issue>
-</lint>

@@ -1,5 +1,0 @@
-<resources>
-    <style name="UI.Material" parent="Theme.App">
-        <item name="android:windowAnimationStyle">@style/Theme.Anim.Material</item>
-    </style>
-</resources>

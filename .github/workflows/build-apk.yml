@@ -4,17 +4,10 @@ on:
   push:
     branches:
       - main
-      - claude/app-feature-additions-4ltaoq
-      - ccr-7583d52e-csqybl
-      - ccr-69a528d0-04tgks
-      - claude/tool-calling-implementation-2syg9t
-      - claude/tts-streaming-queue-a6fo7v
+      - flutter-main
+      - claude/flutter-main-69c3f7
+  pull_request:
   workflow_dispatch:
-    inputs:
-      full_build:
-        description: Run R8 and lint vital like a release build (slower, smaller APK)
-        type: boolean
-        default: false
 
 # A newer push makes an older, still running build obsolete
 concurrency:
@@ -24,26 +17,23 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
-          distribution: jetbrains
-          java-version: 21
-          # The JetBrains distribution resolves versions through the GitHub API.
-          # Authenticated requests get a much higher rate limit than anonymous ones.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          distribution: temurin
+          java-version: 17
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: subosito/flutter-action@v2
         with:
-          # Caches are only written on the default branch unless this is disabled
-          cache-read-only: false
+          flutter-version: 3.35.0
+          channel: stable
+          cache: true
 
       # A fixed debug key lets new builds install as updates over old ones.
-      # Without it, Gradle generates a random key on every fresh runner.
-      # app/build.gradle signs debug builds with the file in DEBUG_KEYSTORE_FILE.
+      # Flutter signs debug builds with ~/.android/debug.keystore.
       - name: Install fixed debug keystore
         env:
           DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
@@ -52,40 +42,19 @@ jobs:
             echo "::warning::DEBUG_KEYSTORE_BASE64 is not set, the APK is signed with a random debug key"
             exit 0
           fi
-          keystore="$RUNNER_TEMP/debug.keystore"
-          # Accept certutil output (BEGIN/END lines), Windows line endings and the "%" zsh prints
-          # after output without a trailing newline
-          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d '[:space:]%' | base64 -d > "$keystore"; then
-            echo "::error::DEBUG_KEYSTORE_BASE64 is not valid base64. Create it with: base64 -w0 debug.keystore (Linux), base64 -i debug.keystore (macOS) or [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore')) (PowerShell)"
+          mkdir -p "$HOME/.android"
+          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d '[:space:]%' | base64 -d > "$HOME/.android/debug.keystore"; then
+            echo "::error::DEBUG_KEYSTORE_BASE64 is not valid base64"
             exit 1
           fi
-          # Standard Android debug keystore: password "android", alias "androiddebugkey"
-          if ! keytool -list -v -keystore "$keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:|Owner:"; then
-            echo "::error::The decoded keystore can not be opened as an Android debug keystore (password android, alias androiddebugkey)"
-            exit 1
-          fi
-          echo "DEBUG_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
 
-      # Push builds skip R8 and lint vital (-PfastBuild). Start the workflow by hand with
-      # full_build checked to test the optimized build.
-      - name: Build debug APK
-        env:
-          FULL_BUILD: ${{ inputs.full_build }}
-        run: |
-          chmod +x gradlew
-          if [ "$FULL_BUILD" = "true" ]; then
-            ./gradlew --no-daemon --stacktrace --build-cache assembleDebug
-          else
-            ./gradlew --no-daemon --stacktrace --build-cache assembleDebug -PfastBuild
-          fi
-
-      - name: Print signing certificate
-        run: |
-          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-          "$apksigner" verify --print-certs app/build/outputs/apk/debug/*.apk
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - run: flutter build apk --debug
 
       - uses: actions/upload-artifact@v4
         with:
-          name: speakgpt-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: grace-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error

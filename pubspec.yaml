@@ -1,0 +1,29 @@
+name: assistant
+description: "Grace, an open-source AI assistant for OpenAI-compatible APIs."
+publish_to: 'none'
+version: 4.39.0+43901
+
+environment:
+  sdk: ^3.9.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  http: ^1.2.2
+  shared_preferences: ^2.3.2
+  flutter_secure_storage: ^9.2.2
+  flutter_markdown_plus: ^1.0.3
+  crypto: ^3.0.5
+  url_launcher: ^6.3.0
+  provider: ^6.1.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/ai_sets.json
