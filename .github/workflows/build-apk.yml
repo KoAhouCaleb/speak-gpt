@@ -41,7 +41,11 @@ jobs:
             exit 0
           fi
           mkdir -p ~/.android
-          echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > ~/.android/debug.keystore
+          # Accept certutil output (BEGIN/END lines) and Windows line endings
+          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d ' \t\r\n' | base64 -d > ~/.android/debug.keystore; then
+            echo "::error::DEBUG_KEYSTORE_BASE64 is not valid base64. Create it with: base64 -w0 debug.keystore (Linux), base64 -i debug.keystore (macOS) or [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore')) (PowerShell)"
+            exit 1
+          fi
 
       - name: Build debug APK
         run: |
