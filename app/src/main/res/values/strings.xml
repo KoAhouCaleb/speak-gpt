@@ -579,6 +579,10 @@
     <string name="tool_open_app_desc">Opens an installed app by name.</string>
     <string name="tool_start_navigation">Start navigation</string>
     <string name="tool_start_navigation_desc">Starts turn-by-turn navigation in Google Maps.</string>
+    <string name="tool_add_navigation_stop">Add navigation stop</string>
+    <string name="tool_add_navigation_stop_desc">Restarts Google Maps navigation through a stop to the destination of the last navigation started by SpeakGPT (within 12 hours). Stops added earlier are not kept.</string>
+    <string name="tool_play_music">Play music</string>
+    <string name="tool_play_music_desc">Asks YouTube Music to play a song, playlist, album or artist.</string>
     <string name="tool_make_call">Make a call</string>
     <string name="tool_make_call_desc">Calls a contact or a phone number. Needs the contacts and phone permissions.</string>
     <string name="tool_send_text">Send a text</string>
@@ -595,6 +599,8 @@
     <string name="tool_confirm_list_apps">Send the list of installed apps to the model?</string>
     <string name="tool_confirm_open_app">Open %1$s?</string>
     <string name="tool_confirm_navigation">Start navigation to %1$s?</string>
+    <string name="tool_confirm_navigation_stop">Restart navigation via %1$s to %2$s?</string>
+    <string name="tool_confirm_play_music">Play %1$s in YouTube Music?</string>
     <string name="tool_confirm_call">Call %1$s?</string>
     <string name="tool_confirm_text">Send to %1$s:
 

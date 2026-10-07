@@ -17,6 +17,7 @@
 package org.teslasoft.assistant.tools
 
 import android.Manifest
+import android.app.SearchManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -25,6 +26,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
+import android.provider.MediaStore
 import android.telephony.SmsManager
 import android.util.Base64
 import androidx.core.graphics.scale
@@ -75,6 +77,7 @@ object AssistantTools {
 
     private const val MAX_IMAGE_SIDE = 1600
     private const val MAPS_PACKAGE = "com.google.android.apps.maps"
+    private const val YOUTUBE_MUSIC_PACKAGE = "com.google.android.apps.youtube.music"
 
     /**
      * @param name Name sent to the model and settings key.
@@ -184,6 +187,62 @@ object AssistantTools {
                         }
                     }
                     putJsonArray("required") { add("destination") }
+                }
+            )
+        ),
+        Definition(
+            "add_navigation_stop", R.string.tool_add_navigation_stop, R.string.tool_add_navigation_stop_desc,
+            ToolPreferences.Mode.AUTO, needsScreen = false,
+            tool = Tool.function(
+                name = "add_navigation_stop",
+                description = "Add a stop to the current Google Maps navigation. Navigation is restarted from the current location through the stop to the final destination. " +
+                    "The destination of the last navigation started by SpeakGPT is used; if the tool reports that it is unknown, ask the user for the final destination and pass it.",
+                parameters = Parameters.buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("stop") {
+                            put("type", "string")
+                            put("description", "Address or place name of the stop")
+                        }
+                        putJsonObject("destination") {
+                            put("type", "string")
+                            put("description", "Final destination. Only needed if the navigation was not started by SpeakGPT")
+                        }
+                    }
+                    putJsonArray("required") { add("stop") }
+                }
+            )
+        ),
+        Definition(
+            "play_music", R.string.tool_play_music, R.string.tool_play_music_desc,
+            ToolPreferences.Mode.AUTO, needsScreen = false,
+            tool = Tool.function(
+                name = "play_music",
+                description = "Play a song, playlist, album or artist in YouTube Music.",
+                parameters = Parameters.buildJsonObject {
+                    put("type", "object")
+                    putJsonObject("properties") {
+                        putJsonObject("query") {
+                            put("type", "string")
+                            put("description", "Name of the song, playlist, album or artist")
+                        }
+                        putJsonObject("type") {
+                            put("type", "string")
+                            put("description", "What the query names; use any if unsure")
+                            putJsonArray("enum") {
+                                add("song")
+                                add("playlist")
+                                add("album")
+                                add("artist")
+                                add("any")
+                            }
+                        }
+                        putJsonObject("artist") {
+                            put("type", "string")
+                            put("description", "Artist of the song or album, if known")
+                        }
+                    }
+                    putJsonArray("required") { add("query") }
                 }
             )
         ),
@@ -336,6 +395,8 @@ object AssistantTools {
             "list_apps" -> listApps(context, confirm)
             "open_app" -> openApp(context, host, args.string("name"), confirm)
             "start_navigation" -> startNavigation(context, host, args.string("destination"), args.stringOrNull("mode"), confirm)
+            "add_navigation_stop" -> addNavigationStop(context, host, args.string("stop"), args.stringOrNull("destination"), confirm)
+            "play_music" -> playMusic(context, host, args.string("query"), args.stringOrNull("type"), args.stringOrNull("artist"), confirm)
             "make_call" -> makeCall(context, host, args.string("contact"), confirm)
             "send_text" -> sendText(context, host, args.string("contact"), args.string("message"), confirm)
             "open_webpage" -> openWebpage(context, host, args.string("url"), confirm)
@@ -540,10 +601,97 @@ object AssistantTools {
 
         return try {
             activity.startActivity(intent)
+            ToolPreferences.setNavigation(context, destination, mode ?: "driving")
             Result("Navigation to $destination started in Google Maps.", context.getString(R.string.tool_status_started))
         } catch (_: ActivityNotFoundException) {
             Result("Error: Google Maps is not installed.", context.getString(R.string.tool_status_failed))
         }
+    }
+
+    private suspend fun addNavigationStop(context: Context, host: ToolHost, stop: String, destinationArg: String?, confirm: suspend (String) -> Boolean): Result {
+        // Google Maps has no public API to change a running navigation, so it is restarted with the stop as a waypoint
+        val saved = ToolPreferences.getNavigation(context)
+        val destination = destinationArg ?: saved?.destination
+            ?: return Result(
+                "Error: the final destination is unknown because SpeakGPT did not start the current navigation. Ask the user for the final destination and call the tool again with it.",
+                context.getString(R.string.tool_status_needs_input)
+            )
+
+        // https://developers.google.com/maps/documentation/urls/get-started#directions-action
+        val travelMode = when (saved?.takeIf { destinationArg == null }?.mode) {
+            "walking" -> "walking"
+            "bicycling" -> "bicycling"
+            "two_wheeler" -> "two-wheeler"
+            else -> "driving"
+        }
+
+        if (!confirm(context.getString(R.string.tool_confirm_navigation_stop, stop, destination))) return declined(context)
+
+        val activity = host.hostActivity ?: return Result("Error: SpeakGPT is not open.", context.getString(R.string.tool_status_failed))
+        val uri = Uri.parse("https://www.google.com/maps/dir/").buildUpon()
+            .appendQueryParameter("api", "1")
+            .appendQueryParameter("destination", destination)
+            .appendQueryParameter("waypoints", stop)
+            .appendQueryParameter("travelmode", travelMode)
+            .appendQueryParameter("dir_action", "navigate")
+            .build()
+        val intent = Intent(Intent.ACTION_VIEW, uri)
+            .setPackage(MAPS_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        return try {
+            activity.startActivity(intent)
+            ToolPreferences.setNavigation(context, destination, saved?.takeIf { destinationArg == null }?.mode ?: "driving")
+            Result("Navigation restarted in Google Maps: via $stop to $destination. Stops added earlier are not included.", context.getString(R.string.tool_status_started))
+        } catch (_: ActivityNotFoundException) {
+            Result("Error: Google Maps is not installed.", context.getString(R.string.tool_status_failed))
+        }
+    }
+
+    // YouTube Music
+
+    private suspend fun playMusic(context: Context, host: ToolHost, query: String, type: String?, artist: String?, confirm: suspend (String) -> Boolean): Result {
+        // https://developer.android.com/guide/components/intents-common#PlaySearch
+        val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
+            .setPackage(YOUTUBE_MUSIC_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+
+        when (type) {
+            "song" -> {
+                intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/audio")
+                intent.putExtra(MediaStore.EXTRA_MEDIA_TITLE, query)
+                artist?.let { intent.putExtra(MediaStore.EXTRA_MEDIA_ARTIST, it) }
+            }
+            "playlist" -> {
+                intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Playlists.ENTRY_CONTENT_TYPE)
+                intent.putExtra("android.intent.extra.playlist", query)
+            }
+            "album" -> {
+                intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Albums.ENTRY_CONTENT_TYPE)
+                intent.putExtra(MediaStore.EXTRA_MEDIA_ALBUM, query)
+                artist?.let { intent.putExtra(MediaStore.EXTRA_MEDIA_ARTIST, it) }
+            }
+            "artist" -> {
+                intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, MediaStore.Audio.Artists.ENTRY_CONTENT_TYPE)
+                intent.putExtra(MediaStore.EXTRA_MEDIA_ARTIST, query)
+            }
+            else -> intent.putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
+        }
+
+        // Always set for apps that ignore the structured extras
+        val fullQuery = if (artist != null && type != "artist" && type != "playlist") "$query $artist" else query
+        intent.putExtra(SearchManager.QUERY, fullQuery)
+
+        if (intent.resolveActivity(context.packageManager) == null) {
+            return Result("Error: YouTube Music is not installed or does not support playing from a search.", context.getString(R.string.tool_status_failed))
+        }
+
+        if (!confirm(context.getString(R.string.tool_confirm_play_music, fullQuery))) return declined(context)
+
+        val activity = host.hostActivity ?: return Result("Error: SpeakGPT is not open.", context.getString(R.string.tool_status_failed))
+        activity.startActivity(intent)
+
+        return Result("Asked YouTube Music to play \"$fullQuery\". Whether playback started can not be confirmed.", context.getString(R.string.tool_status_started))
     }
 
     // Phone and SMS

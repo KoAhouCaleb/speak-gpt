@@ -48,4 +48,25 @@ object ToolPreferences {
     fun setMode(context: Context, toolName: String, mode: Mode) {
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit { putString(toolName, mode.value) }
     }
+
+    /** Navigation started by SpeakGPT, used to restart it with an added stop. */
+    data class Navigation(val destination: String, val mode: String)
+
+    // A navigation started earlier than this belongs to a previous trip
+    private const val NAVIGATION_MAX_AGE_MS = 12 * 60 * 60 * 1000L
+
+    fun setNavigation(context: Context, destination: String, mode: String) {
+        context.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit {
+            putString("navigation_destination", destination)
+            putString("navigation_mode", mode)
+            putLong("navigation_time", System.currentTimeMillis())
+        }
+    }
+
+    fun getNavigation(context: Context): Navigation? {
+        val preferences = context.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        val destination = preferences.getString("navigation_destination", null) ?: return null
+        if (System.currentTimeMillis() - preferences.getLong("navigation_time", 0L) > NAVIGATION_MAX_AGE_MS) return null
+        return Navigation(destination, preferences.getString("navigation_mode", null) ?: "driving")
+    }
 }

@@ -43,6 +43,7 @@
             <data android:scheme="https" />
         </intent>
         <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.google.android.apps.youtube.music" />
     </queries>
 
     <application
