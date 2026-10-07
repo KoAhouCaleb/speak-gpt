@@ -33,8 +33,13 @@ object ScreenContextStore {
     private const val MAX_IMAGE_SIDE = 1600
     private const val MAX_TEXT_LENGTH = 8000
 
+    // Captures older than this belong to a previous assistant invocation
+    private const val MAX_AGE_MS = 2 * 60 * 1000L
+
     private fun imageFile(context: Context) = File(context.cacheDir, IMAGE_FILE)
     private fun textFile(context: Context) = File(context.cacheDir, TEXT_FILE)
+
+    private fun File.isFresh(): Boolean = exists() && System.currentTimeMillis() - lastModified() < MAX_AGE_MS
 
     fun saveScreenshot(context: Context, bitmap: Bitmap) {
         val longSide = maxOf(bitmap.width, bitmap.height)
@@ -56,15 +61,15 @@ object ScreenContextStore {
 
     fun loadScreenshot(context: Context): Bitmap? {
         val file = imageFile(context)
-        return if (file.exists()) BitmapFactory.decodeFile(file.absolutePath) else null
+        return if (file.isFresh()) BitmapFactory.decodeFile(file.absolutePath) else null
     }
 
     fun loadText(context: Context): String? {
         val file = textFile(context)
-        return if (file.exists()) file.readText().ifBlank { null } else null
+        return if (file.isFresh()) file.readText().ifBlank { null } else null
     }
 
-    fun hasContext(context: Context): Boolean = imageFile(context).exists() || textFile(context).exists()
+    fun hasContext(context: Context): Boolean = imageFile(context).isFresh() || textFile(context).isFresh()
 
     fun clear(context: Context) {
         imageFile(context).delete()

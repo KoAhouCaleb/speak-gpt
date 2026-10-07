@@ -47,18 +47,26 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     private var waitingForScreenshot = false
     private var waitingForAssistData = false
     private var launched = false
+    private var shown = false
+
+    // Assist data can be delivered before onShow(), so remember what already arrived
+    private var screenshotReceived = false
+    private var assistDataReceived = false
     private val fallback = Runnable { launchAssistant() }
 
     override fun onShow(args: Bundle?, showFlags: Int) {
         super.onShow(args, showFlags)
 
         launched = false
-        ScreenContextStore.clear(context)
+        shown = true
 
-        waitingForScreenshot = showFlags and SHOW_WITH_SCREENSHOT != 0
-        waitingForAssistData = showFlags and SHOW_WITH_ASSIST != 0
+        val screenshotRequested = showFlags and SHOW_WITH_SCREENSHOT != 0
+        val assistDataRequested = showFlags and SHOW_WITH_ASSIST != 0
 
-        log("Session shown (screenshot requested: $waitingForScreenshot, screen text requested: $waitingForAssistData)")
+        waitingForScreenshot = screenshotRequested && !screenshotReceived
+        waitingForAssistData = assistDataRequested && !assistDataReceived
+
+        log("Session shown (flags: $showFlags, screenshot requested: $screenshotRequested, screen text requested: $assistDataRequested, already received: screenshot=$screenshotReceived text=$assistDataReceived)")
 
         if (!waitingForScreenshot && !waitingForAssistData) {
             launchAssistant()
@@ -70,6 +78,9 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     override fun onHide() {
         super.onHide()
         handler.removeCallbacks(fallback)
+        shown = false
+        screenshotReceived = false
+        assistDataReceived = false
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -77,6 +88,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
         // Index 0 is the focused activity. Other indexes are secondary (multi-window) activities.
         if (state.index == 0) {
             saveStructure(state.assistStructure)
+            assistDataReceived = true
             waitingForAssistData = false
             maybeLaunch()
         }
@@ -87,6 +99,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     override fun onHandleAssist(data: Bundle?, structure: AssistStructure?, content: AssistContent?) {
         // Called only on Android 9 (the AssistState overload above is used on Android 10+)
         saveStructure(structure)
+        assistDataReceived = true
         waitingForAssistData = false
         maybeLaunch()
     }
@@ -102,6 +115,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
             }
         }
 
+        screenshotReceived = true
         waitingForScreenshot = false
         maybeLaunch()
     }
@@ -148,7 +162,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     private fun maybeLaunch() {
-        if (!waitingForScreenshot && !waitingForAssistData) launchAssistant()
+        if (shown && !waitingForScreenshot && !waitingForAssistData) launchAssistant()
     }
 
     private fun launchAssistant() {
