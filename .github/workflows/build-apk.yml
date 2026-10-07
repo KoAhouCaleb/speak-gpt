@@ -3,8 +3,10 @@ name: Build APK
 on:
   push:
     branches:
+      - main
       - claude/app-feature-additions-4ltaoq
       - ccr-7583d52e-csqybl
+      - claude/tool-calling-implementation-2syg9t
       - claude/tts-streaming-queue-a6fo7v
   workflow_dispatch:
     inputs:

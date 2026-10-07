@@ -94,6 +94,7 @@ class SettingsActivity : FragmentActivity() {
     private var tileSpeechServerSTT: TileFragment? = null
     private var tileShowReasoning: TileFragment? = null
     private var tileAutoAttachScreen: TileFragment? = null
+    private var tileTools: TileFragment? = null
     private var tileSilentMode: TileFragment? = null
     private var tileAlwaysSpeak: TileFragment? = null
     private var tileTextModel: TileFragment? = null
@@ -330,6 +331,7 @@ class SettingsActivity : FragmentActivity() {
         transition.excludeTarget(R.id.tile_speech_server_stt, true)
         transition.excludeTarget(R.id.tile_show_reasoning, true)
         transition.excludeTarget(R.id.tile_auto_attach_screen, true)
+        transition.excludeTarget(R.id.tile_tools, true)
         transition.excludeTarget(R.id.tile_silent_mode, true)
         transition.excludeTarget(R.id.tile_always_speak, true)
         transition.excludeTarget(R.id.tile_text_model, true)
@@ -398,6 +400,7 @@ class SettingsActivity : FragmentActivity() {
         transition2.excludeTarget(R.id.tile_speech_server_stt, true)
         transition2.excludeTarget(R.id.tile_show_reasoning, true)
         transition2.excludeTarget(R.id.tile_auto_attach_screen, true)
+        transition2.excludeTarget(R.id.tile_tools, true)
         transition2.excludeTarget(R.id.tile_silent_mode, true)
         transition2.excludeTarget(R.id.tile_always_speak, true)
         transition2.excludeTarget(R.id.tile_text_model, true)
@@ -1121,6 +1124,19 @@ class SettingsActivity : FragmentActivity() {
                 chatId,
                 getString(R.string.tile_attach_screen_desc)
             )
+
+            tileTools = TileFragment.newInstance(
+                checked = false,
+                checkable = false,
+                enabledText = getString(R.string.title_tools),
+                disabledText = null,
+                enabledDesc = getString(R.string.tool_mode_disabled) + " / " + getString(R.string.tool_mode_confirm) + " / " + getString(R.string.tool_mode_auto),
+                disabledDesc = null,
+                icon = R.drawable.ic_experiment,
+                disabled = false,
+                chatId = chatId,
+                functionDesc = getString(R.string.tile_tools_desc)
+            )
         }
 
         t7.start()
@@ -1147,6 +1163,7 @@ class SettingsActivity : FragmentActivity() {
             .replace(R.id.tile_speech_server_stt, tileSpeechServerSTT!!)
             .replace(R.id.tile_show_reasoning, tileShowReasoning!!)
             .replace(R.id.tile_auto_attach_screen, tileAutoAttachScreen!!)
+            .replace(R.id.tile_tools, tileTools!!)
             .replace(R.id.tile_silent_mode, tileSilentMode!!)
             .replace(R.id.tile_always_speak, tileAlwaysSpeak!!)
             .replace(R.id.tile_text_model, tileTextModel!!)
@@ -1514,6 +1531,10 @@ class SettingsActivity : FragmentActivity() {
 
         tileShowReasoning?.setOnCheckedChangeListener { isChecked ->
             preferences?.setShowReasoning(isChecked)
+        }
+
+        tileTools?.setOnTileClickListener {
+            startActivity(Intent(this, ToolsSettingsActivity::class.java))
         }
 
         tileAutoAttachScreen?.setOnCheckedChangeListener { isChecked ->

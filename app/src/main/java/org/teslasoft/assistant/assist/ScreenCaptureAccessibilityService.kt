@@ -1,5 +1,5 @@
 /**************************************************************************
- * Copyright (c) 2023-2026 Dmytro Ostapenko. All rights reserved.
+ * Copyright (c) 2026 Caleb Hall. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -56,6 +56,19 @@ class ScreenCaptureAccessibilityService : AccessibilityService() {
         fun capture(context: Context, onDone: () -> Unit): Boolean {
             val service = instance ?: return false
             service.captureScreen(context.applicationContext, onDone)
+            return true
+        }
+
+        /**
+         * Take a screenshot of the whole display for tool calls.
+         *
+         * @param onResult Called on the main thread with the screenshot, or null and the reason it failed.
+         * @return false if the service is not enabled or the device runs Android 10 or lower (onResult is not called).
+         * */
+        fun captureBitmap(onResult: (Bitmap?, String?) -> Unit): Boolean {
+            val service = instance ?: return false
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return false
+            service.takeBitmap(onResult, retried = false)
             return true
         }
     }
@@ -124,6 +137,35 @@ class ScreenCaptureAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             log(context, "Screenshot failed: ${e.message}")
             onDone()
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.R)
+    private fun takeBitmap(onResult: (Bitmap?, String?) -> Unit, retried: Boolean) {
+        try {
+            takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor, object : TakeScreenshotCallback {
+                override fun onSuccess(screenshot: ScreenshotResult) {
+                    try {
+                        val hardwareBitmap = Bitmap.wrapHardwareBuffer(screenshot.hardwareBuffer, screenshot.colorSpace)
+                        val bitmap = hardwareBitmap?.copy(Bitmap.Config.ARGB_8888, false)
+                        screenshot.hardwareBuffer.close()
+                        onResult(bitmap, if (bitmap == null) "The screenshot could not be decoded" else null)
+                    } catch (e: Exception) {
+                        onResult(null, e.message)
+                    }
+                }
+
+                override fun onFailure(errorCode: Int) {
+                    // The system allows one screenshot per second; the assistant may have just captured the screen
+                    if (errorCode == ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT && !retried) {
+                        android.os.Handler(mainLooper).postDelayed({ takeBitmap(onResult, retried = true) }, 1100)
+                    } else {
+                        onResult(null, "Screenshot failed (error code: $errorCode)")
+                    }
+                }
+            })
+        } catch (e: Exception) {
+            onResult(null, e.message)
         }
     }
 

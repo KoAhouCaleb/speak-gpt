@@ -152,6 +152,9 @@ import org.teslasoft.assistant.ui.onboarding.WelcomeActivity
 import org.teslasoft.assistant.ui.permission.CameraPermissionActivity
 import org.teslasoft.assistant.ui.permission.MicrophonePermissionActivity
 import org.teslasoft.assistant.util.DefaultPromptsParser
+import org.teslasoft.assistant.tools.AssistantTools
+import org.teslasoft.assistant.tools.ToolHost
+import org.teslasoft.assistant.tools.ToolPermissionRequester
 import org.teslasoft.assistant.util.ChatStreamClient
 import org.teslasoft.assistant.util.ScreenContextStore
 import org.teslasoft.assistant.util.SpeechServerClient
@@ -178,6 +181,8 @@ import com.openai.models.images.Image
 import com.openai.models.images.ImageGenerateParams
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.delay
+import androidx.lifecycle.Lifecycle
 import okio.FileSystem
 import okio.Path.Companion.toPath
 import java.util.Optional
@@ -280,6 +285,53 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
     private var savedInstanceState: Bundle? = null
 
     private var mContext: Context? = null
+
+    private val toolPermissionRequester = ToolPermissionRequester(this)
+
+    private val toolHost = object : ToolHost {
+        override val hostActivity: FragmentActivity?
+            get() = activity
+
+        // The assistant is an overlay, so the screen shows the app the user is looking at
+        override val canCaptureScreen: Boolean = true
+
+        override fun isInForeground(): Boolean {
+            return isAdded && isResumed && activity?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+        }
+
+        override suspend fun <T> withUiHidden(block: suspend () -> T): T {
+            val window = dialog?.window ?: return block()
+            val alpha = window.attributes.alpha
+            val dimAmount = window.attributes.dimAmount
+
+            window.attributes = window.attributes.apply {
+                this.alpha = 0f
+                this.dimAmount = 0f
+            }
+
+            try {
+                // Wait until the hidden window has been drawn
+                delay(300)
+                return block()
+            } finally {
+                window.attributes = window.attributes.apply {
+                    this.alpha = alpha
+                    this.dimAmount = dimAmount
+                }
+            }
+        }
+
+        override suspend fun requestPermissions(permissions: Array<String>): Boolean {
+            return toolPermissionRequester.request(mContext ?: return false, permissions)
+        }
+
+        override fun generateImage(prompt: String) {
+            btnAssistantVoiceClickable?.isEnabled = false
+            btnAssistantSend?.isEnabled = false
+            assistantLoading?.visibility = View.VISIBLE
+            generateImages(prompt)
+        }
+    }
 
     override fun onAttach(context: Context) {
         super.onAttach(context)
@@ -1437,7 +1489,20 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         try {
             var response = ""
 
-            if (imageIsSelected) {
+            if (imageIsSelected && preferences?.getFunctionCalling() == true && !(model.contains(":ft") || model.contains("ft:"))) {
+                // Send the image with the conversation so the model can use tools
+                imageIsSelected = false
+                attachedImage?.visibility = View.GONE
+
+                val parts = listOf(TextPart(request), ImagePart(baseImageString!!.filterNot { it.isWhitespace() }))
+                if (chatMessages.isNotEmpty() && chatMessages[chatMessages.size - 1].role == ChatRole.User) {
+                    chatMessages[chatMessages.size - 1] = ChatMessage(role = ChatRole.User, content = parts)
+                } else {
+                    chatMessages.add(ChatMessage(role = ChatRole.User, content = parts))
+                }
+
+                regularGPTResponse(shouldPronounce)
+            } else if (imageIsSelected) {
                 imageIsSelected = false
 
                 attachedImage?.visibility = View.GONE
@@ -1612,90 +1677,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 assistantLoading?.visibility = View.GONE
                 isProcessing = false
             } else {
-                val functionCallingEnabled: Boolean = preferences!!.getFunctionCalling()
-
-                if (functionCallingEnabled && openAIKey != null) {
-                    val cm = mutableListOf(
-                        ChatMessage(
-                            role = ChatRole.User,
-                            content = request
-                        )
-                    )
-
-                    val functionRequest = chatCompletionRequest {
-                        model = ModelId("gpt-4o")
-                        messages = cm
-
-                        tools {
-                            function(
-                                name = "generateImage",
-                                description = "Generate an image based on the entered prompt"
-                            ) {
-                                put("type", "object")
-                                putJsonObject("properties") {
-                                    putJsonObject("prompt") {
-                                        put("type", "string")
-                                        put("description", "The prompt for image generation")
-                                    }
-                                }
-                                putJsonArray("required") {
-                                    add("prompt")
-                                }
-                            }
-
-                            function(
-                                name = "searchAtInternet",
-                                description = "Search the Internet",
-                            ) {
-                                put("type", "object")
-                                putJsonObject("properties") {
-                                    putJsonObject("prompt") {
-                                        put("type", "string")
-                                        put("description", "Search query")
-                                    }
-                                }
-                                putJsonArray("required") {
-                                    add("prompt")
-                                }
-                            }
-                        }
-
-                        toolChoice = ToolChoice.Auto
-                    }
-
-                    val response1 = openAIAI?.chatCompletion(functionRequest)
-
-                    val message = response1?.choices?.first()?.message
-
-                    if (message?.toolCalls != null) {
-                        val toolsCalls = message.toolCalls!!
-
-                        if (toolsCalls.isEmpty()) {
-                            regularGPTResponse(shouldPronounce)
-                        } else {
-                            for (toolCall in toolsCalls) {
-                                require(toolCall is ToolCall.Function) { "Tool call is not a function" }
-                                toolCall.execute()
-                            }
-                        }
-                    } else {
-                        regularGPTResponse(shouldPronounce)
-                    }
-                } else if (functionCallingEnabled) {
-                    putMessage("Function calling requires OpenAI endpoint which is missing on your device. Please go to the settings and add OpenAI endpoint or disable Function Calling. OpenAI base url (host) is: https://api.openai.com/v1/ (don't forget to add slash at the end otherwise you will receive an error).", true)
-                    saveSettings()
-                    restoreUIState()
-                    MaterialAlertDialogBuilder(mContext ?: return, R.style.App_MaterialAlertDialog)
-                        .setTitle("Unsupported feature")
-                        .setMessage("Function calling feature is unavailable because it requires OpenAI endpoint. Would you like to disable this feature?")
-                        .setPositiveButton("Disable") { _, _ -> run {
-                            preferences?.setFunctionCalling(false)
-                        }}
-                        .setNegativeButton("Cancel") { _, _ -> }
-                        .show()
-                } else {
-                    regularGPTResponse(shouldPronounce)
-                }
+                // Tools (function calling) are handled in regularGPTResponse
+                regularGPTResponse(shouldPronounce)
             }
         } catch (_: CancellationException) {
             stopSpeechStream()
@@ -1764,42 +1747,6 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         }
     }
 
-    private val availableFunctions = mapOf("generateImage" to ::generateImage, "searchAtInternet" to ::searchAtInternet)
-
-    private fun ToolCall.Function.execute() {
-        val functionToCall = availableFunctions[function.name] ?: error("Function ${function.name} not found")
-        val functionArgs = function.argumentsAsJson()
-        functionToCall(functionArgs)
-    }
-
-    private fun generateImage(args: JsonObject) {
-        val prompt = args.getValue("prompt").jsonPrimitive.content
-
-        (mContext as Activity?)?.runOnUiThread {
-            btnAssistantVoiceClickable?.isEnabled = false
-            hideKeyboard()
-            assistantLoading?.visibility = View.VISIBLE
-        }
-
-        CoroutineScope(Dispatchers.Main).launch {
-            generateImages(prompt)
-        }
-    }
-
-    private fun searchAtInternet(args: JsonObject) {
-        val prompt = args.getValue("prompt").jsonPrimitive.content
-
-        (mContext as Activity?)?.runOnUiThread {
-            btnAssistantVoiceClickable?.isEnabled = false
-            hideKeyboard()
-            assistantLoading?.visibility = View.VISIBLE
-        }
-
-        CoroutineScope(Dispatchers.Main).launch {
-            searchInternet(prompt)
-        }
-    }
-
     private suspend fun regularGPTResponse(shouldPronounce: Boolean) {
         isProcessing = true
         disableAutoScroll = false
@@ -1831,61 +1778,112 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
         msgs.addAll(chatMessages)
 
-        val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
-            chatCompletionRequest {
-                model = ModelId(this@AssistantFragment.model)
-                temperature = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble()
-                topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble()
-                frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble()
-                presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble()
-                logitBias = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) null else logitBiasPreferences ?. getLogitBiasesMap ()
-                messages = msgs
-            }
-        } else {
-            chatCompletionRequest {
-                model = ModelId(this@AssistantFragment.model)
-                temperature = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble()
-                topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble()
-                frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble()
-                presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble()
-                messages = msgs
-            }
-        }
-
-        val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
-        var rawResponse = ""
+        // Tools offered to the model (null if function calling is off or every tool is disabled)
+        val requestTools = if (preferences!!.getFunctionCalling()) mContext?.let { AssistantTools.enabledTools(it, toolHost) } else null
+        var requestToolChoice: ToolChoice? = if (requestTools != null) ToolChoice.Auto else null
+        var toolLog = ""
+        var toolRounds = 0
+        val afterTurn = arrayListOf<() -> Unit>()
         var rawReasoning = ""
         val speech = startSpeechStream(shouldPronounce)
+        // Text of earlier tool rounds that was already queued for speech
+        var spokenText = ""
 
-        scroll(true)
-
-        completions.flowOn(Dispatchers.IO).collect { v ->
-            run {
-                if (stopper) {
-                    stopper = false
-                    return@collect
+        while (true) {
+            val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
+                chatCompletionRequest {
+                    model = ModelId(this@AssistantFragment.model)
+                    temperature = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble()
+                    topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble()
+                    frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble()
+                    presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble()
+                    logitBias = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) null else logitBiasPreferences ?. getLogitBiasesMap ()
+                    messages = msgs
+                    tools = requestTools
+                    toolChoice = requestToolChoice
                 }
-                if (v.content != null || v.reasoning != null) {
-                    rawResponse += v.content ?: ""
-                    rawReasoning += v.reasoning ?: ""
-                    val parsed = ChatStreamClient.splitThinkTags(rawResponse)
-                    response = parsed.second
-                    val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
-                    if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
-                    speech?.update(response)
-                    messages[messages.size - 1]["message"] = response
-                    scroll(false)
-                    if (messages.size > 2) {
-                        adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
-                    } else {
-                        adapter?.notifyItemChanged(messages.size - 1)
-                    }
-                    saveSettings()
+            } else {
+                chatCompletionRequest {
+                    model = ModelId(this@AssistantFragment.model)
+                    temperature = if (this@AssistantFragment.model.contains("gpt-5") || this@AssistantFragment.model.contains("o1") || this@AssistantFragment.model.contains("o3")) 1.0 else if (preferences!!.getTemperature().toDouble() == 0.7) null else preferences!!.getTemperature().toDouble()
+                    topP = if (preferences!!.getTopP().toDouble() == 1.0) null else preferences!!.getTopP().toDouble()
+                    frequencyPenalty = if (preferences!!.getFrequencyPenalty().toDouble() == 0.0) null else preferences!!.getFrequencyPenalty().toDouble()
+                    presencePenalty = if (preferences!!.getPresencePenalty().toDouble() == 0.0) null else preferences!!.getPresencePenalty().toDouble()
+                    messages = msgs
+                    tools = requestTools
+                    toolChoice = requestToolChoice
                 }
             }
+
+            val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
+            var rawResponse = ""
+            val toolCalls = ChatStreamClient.ToolCallAccumulator()
+            response = ""
+
+            scroll(true)
+
+            completions.flowOn(Dispatchers.IO).collect { v ->
+                run {
+                    if (stopper) {
+                        stopper = false
+                        return@collect
+                    }
+                    toolCalls.add(v.toolCalls)
+                    if (v.content != null || v.reasoning != null) {
+                        rawResponse += v.content ?: ""
+                        rawReasoning += v.reasoning ?: ""
+                        val parsed = ChatStreamClient.splitThinkTags(rawResponse)
+                        response = parsed.second
+                        val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
+                        if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
+                        speech?.update(spokenText + response)
+                        messages[messages.size - 1]["message"] = toolLog + response
+                        scroll(false)
+                        if (messages.size > 2) {
+                            adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
+                        } else {
+                            adapter?.notifyItemChanged(messages.size - 1)
+                        }
+                        saveSettings()
+                    }
+                }
+            }
+
+            if (requestTools == null || toolCalls.isEmpty()) break
+
+            // Run the requested tools and send the results back to the model
+            val calls = toolCalls.build()
+            msgs.add(ChatMessage(role = ChatRole.Assistant, content = response.ifBlank { null }, toolCalls = calls))
+
+            val outcome = AssistantTools.execute(mContext ?: break, toolHost, calls)
+            msgs.addAll(outcome.messages)
+
+            if (response.isNotBlank()) {
+                toolLog += response.trim() + "\n\n"
+                spokenText += response.trim() + "\n\n"
+            }
+            toolLog += outcome.log.joinToString("\n\n") + "\n\n"
+            response = ""
+
+            messages[messages.size - 1]["message"] = toolLog
+            if (messages.size > 2) {
+                adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
+            } else {
+                adapter?.notifyItemChanged(messages.size - 1)
+            }
+            saveSettings()
+
+            // e.g. image generation shows its own message, so the turn ends here
+            if (outcome.afterTurn.isNotEmpty()) {
+                afterTurn.addAll(outcome.afterTurn)
+                break
+            }
+
+            toolRounds++
+            if (outcome.ignored || toolRounds >= AssistantTools.MAX_ROUNDS) requestToolChoice = ToolChoice.None
         }
 
-        messages[messages.size - 1]["message"] = "$response\n"
+        messages[messages.size - 1]["message"] = "$toolLog$response\n"
         if (messages.size > 2) {
             adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
         } else {
@@ -1894,10 +1892,10 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
         chatMessages.add(ChatMessage(
             role = ChatRole.Assistant,
-            content = response
+            content = response.ifBlank { toolLog.trim() }
         ))
 
-        if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
+        if (speech != null) speech.finish(spokenText + response) else pronounce(shouldPronounce, response)
 
         saveSettings()
 
@@ -1905,6 +1903,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         btnAssistantSend?.isEnabled = true
         assistantLoading?.visibility = View.GONE
         isProcessing = false
+
+        afterTurn.forEach { it() }
     }
 
     private fun shouldPronounce(st: Boolean): Boolean {
