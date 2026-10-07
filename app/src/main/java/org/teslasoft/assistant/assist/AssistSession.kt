@@ -93,10 +93,12 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
             }
         }
 
-        // A further onShow() without the screen flags is not the answer to our request
-        // (the system may deliver the original show twice). Keep waiting until the fallback fires.
+        // The re-shown session came back without the screen flags: the system does not provide the
+        // screen to this assistant (observed on recent Pixel builds). Open the overlay right away.
         if (awaitingReshow && showFlags and contextFlags == 0) {
-            log("Session shown again without screen request (flags: $showFlags), still waiting for requested data")
+            log("Session shown again without screen request (flags: $showFlags), the system did not grant screen data")
+            awaitingReshow = false
+            launchAssistant()
             return
         }
 
