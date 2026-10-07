@@ -26,7 +26,6 @@ import android.view.Display
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
-import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.util.ScreenContextStore
 
 /**
@@ -203,8 +202,5 @@ class ScreenCaptureAccessibilityService : AccessibilityService() {
 
     private fun log(context: Context, message: String) {
         Log.i("ScreenCapture", message)
-        try {
-            Logger.log(context, "event", "ScreenCapture", "info", message)
-        } catch (_: Exception) { /* logging must never break the capture */ }
     }
 }

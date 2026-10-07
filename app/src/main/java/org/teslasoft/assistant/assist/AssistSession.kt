@@ -28,7 +28,6 @@ import android.os.Looper
 import android.service.voice.VoiceInteractionSession
 import android.util.Log
 import androidx.annotation.RequiresApi
-import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.ui.assistant.AssistantActivity
 import org.teslasoft.assistant.ui.fragments.AssistantFragment
 import org.teslasoft.assistant.util.ScreenContextStore
@@ -213,9 +212,7 @@ class AssistSession(context: Context) : VoiceInteractionSession(context) {
     }
 
     private fun log(message: String) {
-        try {
-            Logger.log(context, "event", "AssistSession", "info", message)
-        } catch (_: Exception) { /* logging must never break the assistant */ }
+        android.util.Log.i("AssistSession", message)
     }
 
     private fun maybeLaunch() {

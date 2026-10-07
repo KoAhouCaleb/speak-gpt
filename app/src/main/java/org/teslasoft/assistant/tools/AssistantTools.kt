@@ -61,7 +61,6 @@ import kotlinx.serialization.json.putJsonArray
 import kotlinx.serialization.json.putJsonObject
 import org.teslasoft.assistant.R
 import org.teslasoft.assistant.assist.ScreenCaptureAccessibilityService
-import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.preferences.ToolPreferences
 import org.teslasoft.assistant.util.ScreenContextStore
 import org.teslasoft.assistant.util.SearxngClient
@@ -881,8 +880,6 @@ object AssistantTools {
     private fun JsonObject.string(key: String): String = stringOrNull(key) ?: throw IllegalArgumentException("missing argument \"$key\"")
 
     private fun log(context: Context, message: String) {
-        try {
-            Logger.log(context, "event", "Tools", "error", message)
-        } catch (_: Exception) { /* logging must never break a tool call */ }
+        android.util.Log.e("Tools", message)
     }
 }

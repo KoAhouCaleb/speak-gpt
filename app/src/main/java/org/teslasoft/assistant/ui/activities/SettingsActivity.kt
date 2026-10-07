@@ -49,9 +49,7 @@ import com.google.android.material.elevation.SurfaceColors
 import org.teslasoft.assistant.R
 import org.teslasoft.assistant.preferences.ApiEndpointPreferences
 import org.teslasoft.assistant.preferences.ChatPreferences
-import org.teslasoft.assistant.preferences.DeviceInfoProvider
 import org.teslasoft.assistant.preferences.GlobalPreferences
-import org.teslasoft.assistant.preferences.Logger
 import org.teslasoft.assistant.preferences.Preferences
 import org.teslasoft.assistant.preferences.SpeechServerPreferences
 import org.teslasoft.assistant.preferences.dto.ApiEndpointObject
@@ -75,7 +73,6 @@ import java.util.EnumSet
 import java.util.Locale
 import kotlin.math.roundToInt
 import androidx.core.net.toUri
-import androidx.core.content.edit
 import androidx.core.view.WindowCompat
 
 class SettingsActivity : FragmentActivity() {
@@ -111,12 +108,6 @@ class SettingsActivity : FragmentActivity() {
     private var tileAmoledMode: TileFragment? = null
     private var tileLockAssistantWindow: TileFragment? = null
     private var tileCustomize: TileFragment? = null
-    private var tileDeleteData: TileFragment? = null
-    private var tileSendDiagnosticData: TileFragment? = null
-    private var tileRevokeAuthorization: TileFragment? = null
-    private var tileGetNewInstallationId: TileFragment? = null
-    private var tileCrashLog: TileFragment? = null
-    private var tileEventLog: TileFragment? = null
     private var tileChatsAutoSave: TileFragment? = null
     private var tileShowChatErrors: TileFragment? = null
     private var tileHideModelNames: TileFragment? = null
@@ -128,8 +119,6 @@ class SettingsActivity : FragmentActivity() {
     private var btnBack: ImageButton? = null
     private var teslasoftIDCircledButton: TeslasoftIDCircledButton? = null
 
-    private var installationId = ""
-    private var androidId = ""
     private var areFragmentsInitialized = false
     private var chatId = ""
     private var preferences: Preferences? = null
@@ -348,12 +337,6 @@ class SettingsActivity : FragmentActivity() {
         transition.excludeTarget(R.id.tile_amoled_mode, true)
         transition.excludeTarget(R.id.tile_lock_assistant, true)
         transition.excludeTarget(R.id.tile_customize, true)
-        transition.excludeTarget(R.id.tile_delete_data, true)
-        transition.excludeTarget(R.id.tile_send_diagnostic_data, true)
-        transition.excludeTarget(R.id.tile_revoke_authorization, true)
-        transition.excludeTarget(R.id.tile_assign_new_id, true)
-        transition.excludeTarget(R.id.tile_crash_log, true)
-        transition.excludeTarget(R.id.tile_event_log, true)
         transition.excludeTarget(R.id.tile_chats_autosave, true)
         transition.excludeTarget(R.id.tile_show_chat_errors, true)
         transition.excludeTarget(R.id.tile_hide_model_names, true)
@@ -417,12 +400,6 @@ class SettingsActivity : FragmentActivity() {
         transition2.excludeTarget(R.id.tile_amoled_mode, true)
         transition2.excludeTarget(R.id.tile_lock_assistant, true)
         transition2.excludeTarget(R.id.tile_customize, true)
-        transition2.excludeTarget(R.id.tile_delete_data, true)
-        transition2.excludeTarget(R.id.tile_send_diagnostic_data, true)
-        transition2.excludeTarget(R.id.tile_revoke_authorization, true)
-        transition2.excludeTarget(R.id.tile_assign_new_id, true)
-        transition2.excludeTarget(R.id.tile_crash_log, true)
-        transition2.excludeTarget(R.id.tile_event_log, true)
         transition2.excludeTarget(R.id.tile_chats_autosave, true)
         transition2.excludeTarget(R.id.tile_show_chat_errors, true)
         transition2.excludeTarget(R.id.tile_hide_model_names, true)
@@ -497,7 +474,6 @@ class SettingsActivity : FragmentActivity() {
         teslasoftIDClient = TeslasoftIDClient(this, "B7:9F:CB:D0:5C:69:1D:C7:DD:5C:36:50:64:1E:9B:32:00:CA:11:41:47:ED:F1:D9:64:86:2A:CA:49:CD:65:25", "d07985975904997990790c2e5088372a", "org.teslasoft.assistant", settingsListener, syncListener)
 
         val t1 = Thread {
-            androidId = DeviceInfoProvider.getAndroidId(this@SettingsActivity)
             createFragments1()
             createFragments2()
             createFragments3()
@@ -506,7 +482,6 @@ class SettingsActivity : FragmentActivity() {
         }
 
         val t2 = Thread {
-            installationId = DeviceInfoProvider.getInstallationId(this@SettingsActivity)
             createFragments6()
             createFragments7()
         }
@@ -994,62 +969,6 @@ class SettingsActivity : FragmentActivity() {
                 functionDesc = getString(R.string.tile_assistant_customize_desc),
                 transitionName = "expand_customize"
             )
-
-            tileDeleteData = TileFragment.newInstance(
-                checked = false,
-                checkable = false,
-                enabledText = getString(R.string.tile_delete_data_title),
-                disabledText = null,
-                enabledDesc = getString(R.string.tile_delete_data_subtitle),
-                disabledDesc = null,
-                icon = R.drawable.ic_delete,
-                disabled = false,
-                chatId = chatId,
-                functionDesc = getString(R.string.tile_delete_data_desc)
-            )
-
-            val iID = if (installationId == "00000000-0000-0000-0000-000000000000" || installationId == "") "<Not assigned>" else installationId
-
-            val usageEnabled: Boolean = getSharedPreferences("consent", MODE_PRIVATE).getBoolean("usage", false)
-
-            tileSendDiagnosticData = TileFragment.newInstance(
-                usageEnabled,
-                false,
-                getString(R.string.tile_uad_title),
-                null,
-                getString(R.string.on),
-                getString(R.string.off),
-                R.drawable.ic_send,
-                false,
-                chatId,
-                "This feature allows you to manage diagnostics data.\nInstallation ID: $iID\nAndroid ID: $androidId"
-            )
-
-            tileGetNewInstallationId = TileFragment.newInstance(
-                checked = false,
-                checkable = false,
-                enabledText = getString(R.string.tile_assign_iid_title),
-                disabledText = null,
-                enabledDesc = getString(R.string.tile_assign_iid_title),
-                disabledDesc = null,
-                icon = R.drawable.ic_privacy,
-                disabled = false,
-                chatId = chatId,
-                functionDesc = getString(R.string.tile_assign_iid_desc)
-            )
-
-            tileRevokeAuthorization = TileFragment.newInstance(
-                checked = false,
-                checkable = false,
-                enabledText = getString(R.string.tile_revoke_authorization_title),
-                disabledText = null,
-                enabledDesc = if (installationId == "00000000-0000-0000-0000-000000000000" || installationId == "") "Authorization revoked" else "Revoke authorization",
-                disabledDesc = null,
-                icon = R.drawable.ic_close,
-                disabled = installationId == "00000000-0000-0000-0000-000000000000" || installationId == "",
-                chatId = chatId,
-                functionDesc = getString(R.string.tile_revoke_authorization_desc)
-            )
         }
 
         t6.start()
@@ -1058,34 +977,6 @@ class SettingsActivity : FragmentActivity() {
 
     private fun createFragments7() {
         val t7 = Thread {
-            val logView = if (installationId == "00000000-0000-0000-0000-000000000000" || installationId == "") "Authorization revoked" else "Tap to view"
-
-            tileCrashLog = TileFragment.newInstance(
-                checked = false,
-                checkable = false,
-                enabledText = getString(R.string.tile_crash_log_title),
-                disabledText = null,
-                enabledDesc = logView,
-                disabledDesc = null,
-                icon = R.drawable.ic_bug,
-                disabled = installationId == "00000000-0000-0000-0000-000000000000" || installationId == "",
-                chatId = chatId,
-                functionDesc = getString(R.string.tile_crash_log_desc)
-            )
-
-            tileEventLog = TileFragment.newInstance(
-                checked = false,
-                checkable = false,
-                enabledText = getString(R.string.tile_events_log_title),
-                disabledText = null,
-                enabledDesc = logView,
-                disabledDesc = null,
-                icon = R.drawable.ic_bug,
-                disabled = installationId == "00000000-0000-0000-0000-000000000000" || installationId == "",
-                chatId = chatId,
-                functionDesc = getString(R.string.tile_events_log_desc)
-            )
-
             tileChatsAutoSave = TileFragment.newInstance(
                 preferences?.getChatsAutosave() == true,
                 true,
@@ -1181,12 +1072,6 @@ class SettingsActivity : FragmentActivity() {
             .replace(R.id.tile_about_app, tileAboutApp!!)
             .replace(R.id.tile_clear_chat, tileClearChat!!)
             .replace(R.id.tile_documentation, tileDocumentation!!)
-            .replace(R.id.tile_delete_data, tileDeleteData!!)
-            .replace(R.id.tile_send_diagnostic_data, tileSendDiagnosticData!!)
-            .replace(R.id.tile_revoke_authorization, tileRevokeAuthorization!!)
-            .replace(R.id.tile_assign_new_id, tileGetNewInstallationId!!)
-            .replace(R.id.tile_crash_log, tileCrashLog!!)
-            .replace(R.id.tile_event_log, tileEventLog!!)
             .replace(R.id.tile_show_chat_errors, tileShowChatErrors!!)
             .replace(R.id.tile_hide_model_names, tileHideModelNames!!)
             .replace(R.id.tile_monochrome_background_for_chat_list, tileMonochromeBackgroundForChatList!!)
@@ -1434,89 +1319,6 @@ class SettingsActivity : FragmentActivity() {
             startActivity(Intent(this, DocumentationActivity::class.java).putExtra("chatId", chatId))
         }
 
-        tileDeleteData?.setOnTileClickListener {
-            MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                .setTitle(R.string.label_delete_data)
-                .setMessage(R.string.msg_delete_data)
-                .setPositiveButton(R.string.yes) { _, _ ->
-                    run {
-                        Logger.deleteAllLogs(this)
-                        // TODO: Send deletion request when API will be ready
-                        Toast.makeText(this, getString(R.string.submsg_data_deletion), Toast.LENGTH_SHORT).show()
-                        resetDeviceId()
-                    }
-                }
-                .setNegativeButton(R.string.no) { _, _ -> }
-                .show()
-        }
-
-        tileSendDiagnosticData?.setOnTileClickListener {
-            if (getSharedPreferences("consent", MODE_PRIVATE).getBoolean("usage", false)) {
-                MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                    .setTitle(R.string.label_uad)
-                    .setMessage(R.string.msg_uad)
-                    .setPositiveButton(R.string.yes) { _, _ ->
-                        run {
-                            getSharedPreferences("consent", MODE_PRIVATE).edit { putBoolean("usage", false) }
-                            tileSendDiagnosticData?.setChecked(false)
-                            restartActivity()
-                        }
-                    }
-                    .setNegativeButton(R.string.no) { _, _ -> }
-                    .show()
-            } else {
-                MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                    .setTitle(R.string.label_uad_optin)
-                    .setMessage(R.string.mgs_uad_optin)
-                    .setPositiveButton(R.string.btn_agree_and_enable) { _, _ ->
-                        run {
-                            getSharedPreferences("consent", MODE_PRIVATE).edit {putBoolean("usage", true)}
-                            DeviceInfoProvider.assignInstallationId(this)
-                            tileSendDiagnosticData?.setChecked(true)
-                            restartActivity()
-                        }
-                    }
-                    .setNegativeButton(R.string.cancel) { _, _ -> }
-                    .show()
-            }
-        }
-
-        tileRevokeAuthorization?.setOnTileClickListener {
-            MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                .setTitle(R.string.label_revoke_authorization)
-                .setMessage("Are you sure you want to revoke authorization? After you revoke your authorization this app will stop collecting data and delete data from their servers. This action will prevent this app from writing logs (even locally). Installation ID will be removed. Once you enable usage and diagnostics this setting will be reset. This option may prevent you from bug reporting. Would you like to continue?")
-                .setPositiveButton(R.string.yes) { _, _ ->
-                    run {
-                        DeviceInfoProvider.revokeAuthorization(this)
-                        restartActivity()
-                    }
-                }
-                .setNegativeButton(R.string.no) { _, _ -> }
-                .show()
-        }
-
-        tileGetNewInstallationId?.setOnTileClickListener {
-            MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-                .setTitle(R.string.label_iid_assign)
-                .setMessage(R.string.msg_iid_assign)
-                .setPositiveButton(R.string.btn_iid_assign) { _, _ ->
-                    run {
-                        DeviceInfoProvider.resetInstallationId(this)
-                        restartActivity()
-                    }
-                }
-                .setNegativeButton(R.string.cancel) { _, _ -> }
-                .show()
-        }
-
-        tileCrashLog?.setOnTileClickListener {
-            startActivity(Intent(this, LogsActivity::class.java).putExtra("type", "crash").putExtra("chatId", chatId))
-        }
-
-        tileEventLog?.setOnTileClickListener {
-            startActivity(Intent(this, LogsActivity::class.java).putExtra("type", "event").putExtra("chatId", chatId))
-        }
-
         tileSpeechServerTTS?.setOnTileClickListener {
             val dialog = SpeechServerDialogFragment.newInstance(SpeechServerPreferences.TYPE_TTS)
             dialog.setOnSavedListener { type, _ -> tileSpeechServerTTS?.updateSubtitle(speechServerSubtitle(type)) }
@@ -1560,20 +1362,6 @@ class SettingsActivity : FragmentActivity() {
         runOnUiThread {
             recreate()
         }
-    }
-
-    private fun resetDeviceId() {
-        MaterialAlertDialogBuilder(this, R.style.App_MaterialAlertDialog)
-            .setTitle(R.string.label_iid_reset)
-            .setMessage(R.string.msg_iid_reset)
-            .setPositiveButton(R.string.btn_reset) { _, _ ->
-                run {
-                    DeviceInfoProvider.resetInstallationId(this)
-                    restartActivity()
-                }
-            }
-            .setNegativeButton(R.string.cancel) { _, _ -> }
-            .show()
     }
 
     private fun isDarkThemeEnabled(): Boolean {

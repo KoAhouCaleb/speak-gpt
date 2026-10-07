@@ -51,11 +51,9 @@ import org.teslasoft.assistant.Api
 import org.teslasoft.assistant.Config.Companion.API_ENDPOINT
 import org.teslasoft.assistant.R
 import org.teslasoft.assistant.model.SimpleResponseModel
-import org.teslasoft.assistant.preferences.DeviceInfoProvider
 import org.teslasoft.assistant.preferences.Preferences
 import org.teslasoft.assistant.ui.adapters.PromptAdapterNew
 import org.teslasoft.assistant.ui.fragments.dialogs.PostPromptDialogFragment
-import org.teslasoft.assistant.util.Hash
 import org.teslasoft.assistant.util.WindowInsetsUtil
 import org.teslasoft.core.api.network.RequestNetwork
 import java.net.URLEncoder
@@ -128,25 +126,11 @@ class PromptsFragment : Fragment(), SwipeRefreshLayout.OnRefreshListener {
             type: String,
             category: String
         ) {
-            val androidId = DeviceInfoProvider.getAndroidId(mContext ?: return)
-            val deviceIdHash = Hash.hash(androidId) // Add a layer of privacy by hashing the Android ID
             val appVersionCode: String = (mContext?.packageManager?.getPackageInfo(mContext?.packageName ?: "", 0)?.longVersionCode ?: 0L).toString()
-
-            // Device version and app version are used to ensure compatibility and track changes and prevent abuse.
-            // Android ID is unique for each app installed on the device and does not disclose any information about the device.
-            // Android ID is persistent and used to track abuse and ban devices from posting since no personal information about user (like name or email) is collected.
-            // The system can detect abuse by reading the other values like information about prompt send by the user.
-            // App version will be used to prevent posting from the old app versions and gracefully notify users about update requirements.
-            // Android ID does not used for analytical purposes nor shared with AI models or third-party services.
-            // Using Android ID instead of installation ID will prevent users from abusing the system by reinstalling the app.
-            // Additionally, if user connects from the another device sharing the same IP address, a ban will be immediately issued to the new device.
-
-            // These changes will be implemented gradually so users will not receive sudden errors when posting prompts.
-            // Another layer of security and abuse prevention will be achieved by running the moderation API.
 
             requestNetwork?.startRequestNetwork(
                 "GET",
-                "${API_ENDPOINT}/post.php?api_key=${Api.TESLASOFT_API_KEY}&name=${b64urlEncode(name)}&title=${b64urlEncode(title)}&desc=${b64urlEncode(desc)}&prompt=${b64urlEncode(prompt)}&type=$type&category=$category&deviceId=$deviceIdHash&appVersion=$appVersionCode&mode=base64",
+                "${API_ENDPOINT}/post.php?api_key=${Api.TESLASOFT_API_KEY}&name=${b64urlEncode(name)}&title=${b64urlEncode(title)}&desc=${b64urlEncode(desc)}&prompt=${b64urlEncode(prompt)}&type=$type&category=$category&appVersion=$appVersionCode&mode=base64",
                 "A",
                 promptPostListener
             )
