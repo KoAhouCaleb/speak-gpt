@@ -51,6 +51,7 @@ import org.teslasoft.assistant.preferences.dto.ApiEndpointObject
 import org.teslasoft.assistant.preferences.dto.FavoriteModelObject
 import org.teslasoft.assistant.ui.adapters.ModelListAdapter
 import org.teslasoft.assistant.util.Hash
+import org.teslasoft.assistant.util.ModelListClient
 import org.teslasoft.core.api.network.RequestNetwork
 import kotlin.time.Duration.Companion.seconds
 
@@ -212,9 +213,7 @@ class AdvancedModelSelectorDialogFragment : DialogFragment() {
             try {
                 val models: List<Model> = ai.models()
                 for (model in models) {
-                    if (!model.id.id.contains("tts") && !model.id.id.contains("dall") && !model.id.id.contains("whisper") && !model.id.id.contains("embedding") && !model.id.id.contains("vision")) {
-                        availableModels.add(model.id.id)
-                    } else if (model.id.id.contains("ft:") || model.id.id.contains(":ft")) {
+                    if (ModelListClient.isTextModel(model.id.id)) {
                         availableModels.add(model.id.id)
                     }
                 }
