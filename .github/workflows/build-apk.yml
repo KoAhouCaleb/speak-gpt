@@ -42,8 +42,9 @@ jobs:
             exit 0
           fi
           keystore="$RUNNER_TEMP/debug.keystore"
-          # Accept certutil output (BEGIN/END lines) and Windows line endings
-          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d ' \t\r\n' | base64 -d > "$keystore"; then
+          # Accept certutil output (BEGIN/END lines), Windows line endings and the "%" zsh prints
+          # after output without a trailing newline
+          if ! printf '%s' "$DEBUG_KEYSTORE_BASE64" | grep -v -- '-----' | tr -d '[:space:]%' | base64 -d > "$keystore"; then
             echo "::error::DEBUG_KEYSTORE_BASE64 is not valid base64. Create it with: base64 -w0 debug.keystore (Linux), base64 -i debug.keystore (macOS) or [Convert]::ToBase64String([IO.File]::ReadAllBytes('debug.keystore')) (PowerShell)"
             exit 1
           fi

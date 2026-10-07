@@ -158,6 +158,7 @@ import org.teslasoft.assistant.tools.ToolPermissionRequester
 import org.teslasoft.assistant.util.ChatStreamClient
 import org.teslasoft.assistant.util.ScreenContextStore
 import org.teslasoft.assistant.util.SpeechServerClient
+import org.teslasoft.assistant.util.SpeechStream
 import org.teslasoft.assistant.util.Hash
 import org.teslasoft.assistant.util.LocaleParser
 import java.io.BufferedReader
@@ -486,6 +487,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
     // Media player for OpenAI TTS
     private var mediaPlayer: MediaPlayer? = null
+    private var speechStream: SpeechStream? = null
 
     // Init chat save feature
     private var chatListUpdatedListener: AddChatDialogFragment.StateChangesListener = object : AddChatDialogFragment.StateChangesListener {
@@ -695,6 +697,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             mediaPlayer!!.stop()
             mediaPlayer!!.reset()
         }
+        stopSpeechStream()
 
         if (savedInstanceState == null) {
             mContext?.let { ScreenContextStore.clear(it) }
@@ -774,6 +777,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                         mediaPlayer!!.stop()
                         mediaPlayer!!.reset()
                     }
+                    stopSpeechStream()
                     tts!!.stop()
                 } catch (_: java.lang.Exception) {/* ignored */}
                 btnAssistantVoiceClickable?.setImageResource(R.drawable.ic_microphone)
@@ -1023,6 +1027,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     mediaPlayer!!.stop()
                     mediaPlayer!!.reset()
                 }
+                stopSpeechStream()
                 tts!!.stop()
             } catch (_: java.lang.Exception) {/* unused */}
             btnAssistantVoiceClickable?.setImageResource(R.drawable.ic_microphone)
@@ -1036,6 +1041,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     mediaPlayer!!.stop()
                     mediaPlayer!!.reset()
                 }
+                stopSpeechStream()
                 tts!!.stop()
             } catch (_: java.lang.Exception) {/* unused */}
             btnAssistantVoiceClickable?.setImageResource(R.drawable.ic_stop_recording)
@@ -1319,6 +1325,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 mediaPlayer!!.stop()
                 mediaPlayer!!.reset()
             }
+            stopSpeechStream()
             tts!!.stop()
         } catch (_: java.lang.Exception) {/* ignored */}
         if (message != "") {
@@ -1548,6 +1555,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
                 var rawResponse = ""
                 var rawReasoning = ""
+                val speech = startSpeechStream(shouldPronounce)
 
                 scroll(true)
 
@@ -1565,6 +1573,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                             val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
                             if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                             if (response != "null") {
+                                speech?.update(response)
                                 messages[messages.size - 1]["message"] = response
                                 scroll(false)
                                 if (messages.size > 2) {
@@ -1590,7 +1599,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     content = response
                 ))
 
-                pronounce(shouldPronounce, response)
+                if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
 
                 saveSettings()
 
@@ -1625,6 +1634,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 }
 
                 val completions: Flow<TextCompletion> = ai!!.completions(completionRequest)
+                val speech = startSpeechStream(shouldPronounce)
 
                 completions.flowOn(Dispatchers.IO).collect { v ->
                     run {
@@ -1635,6 +1645,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
 
                         if (v.choices[0] != null && v.choices[0].text != null && v.choices[0].text.toString() != "null") {
                             response += v.choices[0].text
+                            speech?.update(response)
                             messages[messages.size - 1]["message"] = response
                             if (messages.size > 2) {
                                 adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -1651,7 +1662,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                     content = response
                 ))
 
-                pronounce(shouldPronounce, response)
+                if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
 
                 if (messages.size > 2) {
                     adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -1670,6 +1681,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                 regularGPTResponse(shouldPronounce)
             }
         } catch (_: CancellationException) {
+            stopSpeechStream()
             (mContext as Activity?)?.runOnUiThread {
                 restoreUIState()
             }
@@ -1727,6 +1739,8 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             assistantLoading?.visibility = View.GONE
             isProcessing = false
         } finally {
+            // Let sentences queued before an error play out
+            speechStream?.close()
             (mContext as Activity?)?.runOnUiThread {
                 restoreUIState()
             }
@@ -1771,6 +1785,9 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         var toolRounds = 0
         val afterTurn = arrayListOf<() -> Unit>()
         var rawReasoning = ""
+        val speech = startSpeechStream(shouldPronounce)
+        // Text of earlier tool rounds that was already queued for speech
+        var spokenText = ""
 
         while (true) {
             val chatCompletionRequest = if (preferences?.getLogitBiasesConfigId() == null || preferences?.getLogitBiasesConfigId() == "null" || preferences?.getLogitBiasesConfigId() == "") {
@@ -1819,6 +1836,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
                         response = parsed.second
                         val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
                         if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
+                        speech?.update(spokenText + response)
                         messages[messages.size - 1]["message"] = toolLog + response
                         scroll(false)
                         if (messages.size > 2) {
@@ -1840,7 +1858,10 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             val outcome = AssistantTools.execute(mContext ?: break, toolHost, calls)
             msgs.addAll(outcome.messages)
 
-            if (response.isNotBlank()) toolLog += response.trim() + "\n\n"
+            if (response.isNotBlank()) {
+                toolLog += response.trim() + "\n\n"
+                spokenText += response.trim() + "\n\n"
+            }
             toolLog += outcome.log.joinToString("\n\n") + "\n\n"
             response = ""
 
@@ -1874,7 +1895,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
             content = response.ifBlank { toolLog.trim() }
         ))
 
-        pronounce(shouldPronounce, response)
+        if (speech != null) speech.finish(spokenText + response) else pronounce(shouldPronounce, response)
 
         saveSettings()
 
@@ -1886,8 +1907,41 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
         afterTurn.forEach { it() }
     }
 
+    private fun shouldPronounce(st: Boolean): Boolean {
+        return st && isTTSInitialized && !silenceMode || preferences!!.getNotSilence()
+    }
+
+    /**
+     * Start speaking a streamed response sentence by sentence when the self-hosted TTS server is enabled.
+     *
+     * @return Stream to feed the response into, or null if the response should be pronounced once complete.
+     * */
+    private fun startSpeechStream(st: Boolean): SpeechStream? {
+        val context = mContext ?: return null
+        if (!shouldPronounce(st) || !SpeechServerPreferences.getSpeechServerPreferences(context).isTtsEnabled()) return null
+        return newSpeechStream()
+    }
+
+    private fun newSpeechStream(): SpeechStream? {
+        stopSpeechStream()
+
+        val context = mContext ?: return null
+        val config = SpeechServerPreferences.getSpeechServerPreferences(context).getConfig(SpeechServerPreferences.TYPE_TTS)
+        val stream = SpeechStream(context, config) { e ->
+            Toast.makeText(context, context.getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
+        }
+
+        speechStream = stream
+        return stream
+    }
+
+    private fun stopSpeechStream() {
+        speechStream?.cancel()
+        speechStream = null
+    }
+
     private fun pronounce(st: Boolean, message: String) {
-        if (st && isTTSInitialized && !silenceMode || preferences!!.getNotSilence()) {
+        if (shouldPronounce(st)) {
             if (autoLangDetect) {
                 try {
                     languageIdentifier = LanguageIdentification.getClient()
@@ -1931,31 +1985,7 @@ class AssistantFragment : BottomSheetDialogFragment(), ChatAdapter.OnUpdateListe
     }
 
     private fun speakWithSpeechServer(message: String) {
-        val config = SpeechServerPreferences.getSpeechServerPreferences(mContext ?: return).getConfig(SpeechServerPreferences.TYPE_TTS)
-
-        CoroutineScope(Dispatchers.Main).launch {
-            try {
-                val rawAudio = withContext(Dispatchers.IO) { SpeechServerClient.speech(config, message) }
-
-                val tempMp3 = File.createTempFile("audio", "mp3", mContext?.cacheDir)
-                tempMp3.deleteOnExit()
-                FileOutputStream(tempMp3).use { it.write(rawAudio) }
-
-                mediaPlayer?.reset()
-
-                FileInputStream(tempMp3).use { fis ->
-                    mediaPlayer?.setDataSource(fis.fd)
-                    mediaPlayer?.prepare()
-                }
-
-                mediaPlayer?.start()
-            } catch (_: CancellationException) {
-                /* ignored */
-            } catch (e: Exception) {
-                val context = mContext ?: return@launch
-                Toast.makeText(context, context.getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
-            }
-        }
+        newSpeechStream()?.finish(message)
     }
 
     private fun speak(message: String) {
