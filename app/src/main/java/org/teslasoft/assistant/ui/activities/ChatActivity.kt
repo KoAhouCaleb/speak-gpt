@@ -173,6 +173,7 @@ import org.teslasoft.assistant.ui.permission.CameraPermissionActivity
 import org.teslasoft.assistant.ui.permission.MicrophonePermissionActivity
 import org.teslasoft.assistant.util.ChatStreamClient
 import org.teslasoft.assistant.util.SpeechServerClient
+import org.teslasoft.assistant.util.SpeechStream
 import org.teslasoft.assistant.util.Hash
 import org.teslasoft.assistant.util.LocaleParser
 import org.teslasoft.assistant.util.WindowInsetsUtil
@@ -279,6 +280,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
     // Media player for OpenAI TTS
     private var mediaPlayer: MediaPlayer? = null
+    private var speechStream: SpeechStream? = null
 
     // Init preferences
     private var preferences: Preferences? = null
@@ -824,6 +826,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
             mediaPlayer!!.stop()
             mediaPlayer!!.reset()
         }
+        stopSpeechStream()
 
         killAllProcesses()
 
@@ -1294,6 +1297,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                         mediaPlayer!!.stop()
                         mediaPlayer!!.reset()
                     }
+                    stopSpeechStream()
                     tts!!.stop()
                 } catch (_: java.lang.Exception) {/* ignored */}
                 btnMicro?.setImageResource(R.drawable.ic_microphone)
@@ -1635,6 +1639,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     mediaPlayer!!.stop()
                     mediaPlayer!!.reset()
                 }
+                stopSpeechStream()
                 tts!!.stop()
             } catch (_: java.lang.Exception) {/* unused */}
             btnMicro?.setImageResource(R.drawable.ic_microphone)
@@ -1646,6 +1651,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     mediaPlayer!!.stop()
                     mediaPlayer!!.reset()
                 }
+                stopSpeechStream()
                 tts!!.stop()
             } catch (_: java.lang.Exception) {/* unused */}
             btnMicro?.setImageResource(R.drawable.ic_stop_recording)
@@ -1801,6 +1807,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 mediaPlayer!!.stop()
                 mediaPlayer!!.reset()
             }
+            stopSpeechStream()
             tts!!.stop()
         } catch (_: java.lang.Exception) {/* unused */}
         if (message != "") {
@@ -2048,6 +2055,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
                 var rawResponse = ""
                 var rawReasoning = ""
+                val speech = startSpeechStream(shouldPronounce)
 
                 scroll(true)
 
@@ -2062,6 +2070,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                             val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
                             if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
                             if (response != "null") {
+                                speech?.update(response)
                                 messages[messages.size - 1]["message"] = response
                                 if (messages.size > 2) {
                                     adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -2085,7 +2094,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
                 syncChatProjection()
 
-                pronounce(shouldPronounce, response)
+                if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
 
                 saveSettings()
                 calculateCost()
@@ -2120,12 +2129,14 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 }
 
                 val completions: Flow<TextCompletion> = ai!!.completions(completionRequest)
+                val speech = startSpeechStream(shouldPronounce)
 
                 completions.flowOn(Dispatchers.IO).collect { v ->
                     run {
                         if (!currentCoroutineContext().isActive) throw CancellationException()
                         else if (v.choices[0] != null && v.choices[0].text != null && v.choices[0].text.toString() != "null") {
                             response += v.choices[0].text
+                            speech?.update(response)
                             messages[messages.size - 1]["message"] = response
                             if (messages.size > 2) {
                                 adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -2149,7 +2160,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 saveSettings()
                 calculateCost()
 
-                pronounce(shouldPronounce, response)
+                if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
 
                 btnMicro?.isEnabled = true
                 btnSend?.isEnabled = true
@@ -2245,6 +2256,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 }
             }
         } catch (_: CancellationException) {
+            stopSpeechStream()
             calculateCost()
             runOnUiThread {
                 restoreUIState()
@@ -2306,6 +2318,8 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                 messageInput?.requestFocus()
             }
         } finally {
+            // Let sentences queued before an error play out
+            speechStream?.close()
             calculateCost()
             runOnUiThread {
                 restoreUIState()
@@ -2395,6 +2409,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
         val completions: Flow<ChatStreamClient.Delta> = ChatStreamClient.stream(apiEndpointObject?.host!!, key!!, chatCompletionRequest)
         var rawResponse = ""
         var rawReasoning = ""
+        val speech = startSpeechStream(shouldPronounce)
 
         scroll(true)
 
@@ -2408,6 +2423,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
                     response = parsed.second
                     val reasoningText = listOf(rawReasoning, parsed.first).filter { it.isNotBlank() }.joinToString("\n\n")
                     if (reasoningText.isNotEmpty()) messages[messages.size - 1]["reasoning"] = reasoningText
+                    speech?.update(response)
                     messages[messages.size - 1]["message"] = response
                     if (messages.size > 2) {
                         adapter?.notifyItemRangeChanged(messages.size - 3, messages.size - 1)
@@ -2429,7 +2445,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
 
         syncChatProjection()
 
-        pronounce(shouldPronounce, response)
+        if (speech != null) speech.finish(response) else pronounce(shouldPronounce, response)
 
         saveSettings()
         calculateCost()
@@ -2538,8 +2554,39 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
         messageCounter++
     }
 
+    private fun shouldPronounce(st: Boolean): Boolean {
+        return (st && isTTSInitialized && !silenceMode) || preferences!!.getNotSilence()
+    }
+
+    /**
+     * Start speaking a streamed response sentence by sentence when the self-hosted TTS server is enabled.
+     *
+     * @return Stream to feed the response into, or null if the response should be pronounced once complete.
+     * */
+    private fun startSpeechStream(st: Boolean): SpeechStream? {
+        if (!shouldPronounce(st) || !SpeechServerPreferences.getSpeechServerPreferences(this).isTtsEnabled()) return null
+        return newSpeechStream()
+    }
+
+    private fun newSpeechStream(): SpeechStream {
+        stopSpeechStream()
+
+        val config = SpeechServerPreferences.getSpeechServerPreferences(this).getConfig(SpeechServerPreferences.TYPE_TTS)
+        val stream = SpeechStream(this, config) { e ->
+            Toast.makeText(this, getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
+        }
+
+        speechStream = stream
+        return stream
+    }
+
+    private fun stopSpeechStream() {
+        speechStream?.cancel()
+        speechStream = null
+    }
+
     private fun pronounce(st: Boolean, message: String) {
-        if ((st && isTTSInitialized && !silenceMode) || preferences!!.getNotSilence()) {
+        if (shouldPronounce(st)) {
             if (autoLangDetect) {
                 try {
                     languageIdentifier = LanguageIdentification.getClient()
@@ -2583,30 +2630,7 @@ class ChatActivity : FragmentActivity(), ChatAdapter.OnUpdateListener {
     }
 
     private fun speakWithSpeechServer(message: String) {
-        val config = SpeechServerPreferences.getSpeechServerPreferences(this).getConfig(SpeechServerPreferences.TYPE_TTS)
-
-        CoroutineScope(Dispatchers.Main).launch {
-            try {
-                val rawAudio = withContext(Dispatchers.IO) { SpeechServerClient.speech(config, message) }
-
-                val tempMp3 = File.createTempFile("audio", "mp3", cacheDir)
-                tempMp3.deleteOnExit()
-                FileOutputStream(tempMp3).use { it.write(rawAudio) }
-
-                mediaPlayer?.reset()
-
-                FileInputStream(tempMp3).use { fis ->
-                    mediaPlayer?.setDataSource(fis.fd)
-                    mediaPlayer?.prepare()
-                }
-
-                mediaPlayer?.start()
-            } catch (_: CancellationException) {
-                /* ignored */
-            } catch (e: Exception) {
-                Toast.makeText(this@ChatActivity, getString(R.string.msg_speech_server_error) + " " + (e.message ?: ""), Toast.LENGTH_LONG).show()
-            }
-        }
+        newSpeechStream().finish(message)
     }
 
     private fun speak(message: String) {
