@@ -7,6 +7,15 @@
     <uses-permission android:name="android.permission.REQUEST_ROLE" />
     <uses-permission android:name="android.permission.CAMERA" />
 
+    <!-- Tools (requested at runtime when the assistant first uses them) -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <uses-feature
+        android:name="android.hardware.telephony"
+        android:required="false" />
+
     <uses-sdk tools:overrideLibrary="org.teslasoft.core.auth"/>
 
     <uses-feature
@@ -22,6 +31,19 @@
         </intent>
         <package android:name="org.teslasoft.assistant" />
         <package android:name="com.teslasoft.libraries.support" />
+
+        <!-- Tools: list and open apps, find the default browser -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+        <package android:name="com.google.android.apps.maps" />
+        <package android:name="com.google.android.apps.youtube.music" />
     </queries>
 
     <application
@@ -71,6 +93,12 @@
             android:name=".ui.activities.DebugMaterial"
             android:exported="false"
             android:windowSoftInputMode="adjustResize">
+        </activity>
+
+        <activity
+            android:name=".ui.activities.ToolsSettingsActivity"
+            android:exported="false"
+            android:label="@string/title_tools">
         </activity>
 
         <activity
