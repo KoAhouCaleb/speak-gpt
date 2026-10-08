@@ -2,6 +2,8 @@ import 'package:assistant/models/models.dart';
 import 'package:assistant/services/chat_session.dart';
 import 'package:assistant/services/chat_stream_client.dart';
 import 'package:assistant/services/searxng_client.dart';
+import 'package:assistant/services/speech_stream.dart';
+import 'fake_speech_output.dart';
 import 'package:assistant/services/storage.dart';
 import 'package:assistant/services/tools.dart';
 import 'package:assistant/util.dart';
@@ -384,15 +386,15 @@ void main() {
         }),
       );
 
-      String? spoken;
-      session.onAnswer = (t) => spoken = t;
+      final output = FakeOutput();
+      session.speechFactory = () => SpeechStream(output);
       // A dictated message, so the answer is read aloud
       await session.send('hi', fromVoice: true);
 
       expect(session.error, isNull);
       expect(session.messages.last.text, 'Hello');
       expect(session.messages.last.reasoning, 'think');
-      expect(spoken, 'Hello');
+      expect(output.added, ['Hello']);
       expect(bodies.single['stream'], true);
       expect(storage.messages(chat.id).length, 2);
       session.dispose();

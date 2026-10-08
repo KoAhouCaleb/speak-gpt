@@ -283,6 +283,7 @@ class SpeechServerConfig {
     this.model = '',
     this.voice = 'af_heart',
     this.language = '',
+    this.format = 'mp3',
   });
 
   bool enabled;
@@ -294,6 +295,10 @@ class SpeechServerConfig {
 
   /// Text to speech only.
   String voice;
+
+  /// Text to speech only: audio format asked from the server (mp3, wav or opus). WAV has no
+  /// encoder padding, so consecutive sentences join without a click.
+  String format;
 
   /// Speech to text only: language hint such as "en". Empty lets the server detect it.
   String language;

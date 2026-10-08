@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -10,6 +11,7 @@ import '../models/models.dart';
 import '../services/chat_session.dart';
 import '../services/native_bridge.dart';
 import '../services/speech_service.dart';
+import '../services/speech_stream.dart';
 import '../services/storage.dart';
 import '../services/tools.dart';
 import '../util.dart';
@@ -55,7 +57,7 @@ class _ChatScreenState extends State<ChatScreen> {
       ..addListener(_onChange)
       ..confirmTool = _confirmTool
       // The session decides whether this answer is read aloud (silent / always speak modes)
-      ..onAnswer = _speak;
+      ..speechFactory = _openSpeech;
 
     final assist = widget.assist;
     if (assist != null && _storage.autoAttachScreen) {
@@ -96,6 +98,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _send({bool fromVoice = false}) async {
     if (_listening) await _stopListening();
+    unawaited(_speech.stopSpeaking());
     final dictated = fromVoice || _voiceInput;
     _voiceInput = false;
     final text = _input.text;
@@ -222,6 +225,20 @@ class _ChatScreenState extends State<ChatScreen> {
       return;
     }
     setState(() => _listening = true);
+  }
+
+  SpeechStream _openSpeech() => _speech.openStream(
+    locale: _storage.speechLocale,
+    endpoint: _storage.endpointById(_session.settings.endpointId),
+    onError: _speechFailed,
+  );
+
+  void _speechFailed(String error) {
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not read aloud: $error')));
+    }
   }
 
   Future<void> _speak(String text) async {

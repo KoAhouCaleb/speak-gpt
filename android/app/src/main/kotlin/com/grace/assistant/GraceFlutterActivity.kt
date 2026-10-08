@@ -108,6 +108,14 @@ open class GraceFlutterActivity : FlutterActivity() {
                 openAssistantSettings()
                 result.success(null)
             }
+            "audioEnqueue" -> {
+                AudioQueue.enqueue(call.argument<String>("path") ?: "")
+                result.success(null)
+            }
+            "audioStop" -> {
+                AudioQueue.stop()
+                result.success(null)
+            }
             "takePendingShare" -> {
                 result.success(pendingShare)
                 pendingShare = null

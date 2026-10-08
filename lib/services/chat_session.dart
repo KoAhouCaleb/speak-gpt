@@ -7,6 +7,7 @@ import 'package:http/http.dart' as http;
 import '../models/models.dart';
 import 'app_http.dart';
 import 'chat_stream_client.dart';
+import 'speech_stream.dart';
 import 'image_client.dart';
 import 'storage.dart';
 import 'tools.dart';
@@ -37,7 +38,9 @@ class ChatSession extends ChangeNotifier {
   ToolConfirm? confirmTool;
 
   /// Called with the final answer text, used for speech output.
-  void Function(String text)? onAnswer;
+  /// Creates the stream that reads an answer aloud while it is written. Only called when the
+  /// answer is to be spoken (see [shouldSpeak]).
+  SpeechStream? Function()? speechFactory;
 
   /// Whether an answer is read aloud: after a dictated message unless silent mode is on,
   /// and always in "always speak" mode, which wins over silent mode. Typed messages are only
@@ -321,6 +324,16 @@ class ChatSession extends ChangeNotifier {
     final toolContext =
         _toolContext ?? ToolContext(storage: storage, chatSettings: s);
 
+    // The answer is spoken sentence by sentence while it streams in
+    final speech =
+        shouldSpeak(
+          fromVoice: _lastFromVoice,
+          silent: s.silentMode,
+          alwaysSpeak: s.alwaysSpeak,
+        )
+        ? speechFactory?.call()
+        : null;
+
     try {
       var finished = '';
       for (var round = 0; round <= maxToolRounds; round++) {
@@ -353,6 +366,7 @@ class ChatSession extends ChangeNotifier {
             inlineReasoning,
           ].where((e) => e.isNotEmpty).join('\n\n');
           answer.text = finished + visible;
+          speech?.update(answer.text);
           _notify();
         }
 
@@ -379,7 +393,20 @@ class ChatSession extends ChangeNotifier {
         }
         if (_stopRequested) break;
       }
+
+      // The unterminated last sentence is spoken now. Stopping silences the answer at once.
+      if (_stopRequested) {
+        await speech?.cancel();
+      } else {
+        speech?.finish(answer.text);
+      }
     } catch (e) {
+      // Sentences that were already queued are still spoken after an error, not after a stop
+      if (_stopRequested) {
+        await speech?.cancel();
+      } else {
+        speech?.close();
+      }
       // Closing the client on purpose (stop button) also surfaces as an exception
       if (!_stopRequested) {
         // Inside the chat the error is saved with the answer. Otherwise it is only a banner.
@@ -402,18 +429,6 @@ class ChatSession extends ChangeNotifier {
       if (empty) messages.remove(answer);
       await storage.saveMessages(chatId, messages);
       await storage.touchChat(chatId);
-      final s = settings;
-      if (!empty &&
-          error == null &&
-          answer.errorText.isEmpty &&
-          answer.text.trim().isNotEmpty &&
-          shouldSpeak(
-            fromVoice: _lastFromVoice,
-            silent: s.silentMode,
-            alwaysSpeak: s.alwaysSpeak,
-          )) {
-        onAnswer?.call(answer.text);
-      }
       _notify();
     }
   }

@@ -105,6 +105,13 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Audio format asked from text to speech servers: mp3, wav or opus.
+  String get ttsAudioFormat => _prefs.getString('tts_audio_format') ?? 'mp3';
+  Future<void> setTtsAudioFormat(String v) async {
+    await _prefs.setString('tts_audio_format', v);
+    notifyListeners();
+  }
+
   String get ttsEndpointModel =>
       _prefs.getString('tts_endpoint_model') ?? 'tts-1';
   Future<void> setTtsEndpointModel(String v) async {

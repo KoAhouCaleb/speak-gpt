@@ -73,7 +73,7 @@ class SpeechServerClient {
     final body = <String, dynamic>{
       'input': text,
       'voice': config.voice,
-      'response_format': 'mp3',
+      'response_format': config.format,
     };
     if (config.model.trim().isNotEmpty) body['model'] = config.model.trim();
 

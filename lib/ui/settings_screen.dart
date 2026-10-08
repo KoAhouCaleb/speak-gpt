@@ -276,6 +276,23 @@ class _SettingsScreenState extends State<SettingsScreen>
               onChanged: (v) => storage.setTtsEngine(v ?? 'device'),
             ),
           ),
+          ListTile(
+            leading: const Icon(Icons.graphic_eq),
+            title: const Text('Audio format'),
+            subtitle: const Text(
+              'For speech servers and API endpoints. WAV joins sentences without a click but uses more data.',
+            ),
+            trailing: DropdownButton<String>(
+              value: storage.ttsAudioFormat,
+              underline: const SizedBox.shrink(),
+              items: const [
+                DropdownMenuItem(value: 'mp3', child: Text('MP3')),
+                DropdownMenuItem(value: 'wav', child: Text('WAV')),
+                DropdownMenuItem(value: 'opus', child: Text('Opus')),
+              ],
+              onChanged: (v) => storage.setTtsAudioFormat(v ?? 'mp3'),
+            ),
+          ),
           if (storage.ttsEngine == 'endpoint') ...[
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

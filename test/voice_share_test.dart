@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:assistant/models/models.dart';
 import 'package:assistant/services/chat_session.dart';
 import 'package:assistant/services/speech_service.dart';
+import 'package:assistant/services/speech_stream.dart';
+import 'fake_speech_output.dart';
 import 'package:assistant/services/storage.dart';
 import 'package:assistant/ui/assist_overlay.dart';
 import 'package:assistant/ui/message_input.dart';
@@ -82,17 +84,18 @@ void main() {
         ..silentMode = silent
         ..alwaysSpeak = always;
       await storage.saveChatSettings(chat.id, s);
-      final spoken = <String>[];
+      final output = FakeOutput();
       final session = ChatSession(
         storage,
         chat.id,
         clientFactory: () => MockClient.streaming(
           (r, b) async => sse(['{"choices":[{"delta":{"content":"Answer"}}]}']),
         ),
-      )..onAnswer = spoken.add;
+      )..speechFactory = (() => SpeechStream(output));
       await session.send('hello', fromVoice: fromVoice);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
       session.dispose();
-      return spoken;
+      return output.added;
     }
 
     test(
