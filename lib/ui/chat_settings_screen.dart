@@ -214,6 +214,33 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
+            title: const Text('Tools'),
+            subtitle: const Text(
+              'Send Grace\'s own tools (search, navigation, calls, apps...) to the model. '
+              'Choose which ones in Settings > Tools. The model must support function calling. '
+              'When this is off no tools are sent, and a server that adds tools of its own (such as Open WebUI) '
+              'will offer the model those instead.',
+            ),
+            value: _s.functionCalling,
+            onChanged: (v) => setState(() => _s.functionCalling = v),
+          ),
+          DropdownButtonFormField<String>(
+            initialValue: _storage.logitBiasSetById(_s.logitBiasSetId) == null
+                ? ''
+                : _s.logitBiasSetId,
+            decoration: const InputDecoration(
+              labelText: 'Logit bias set',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None')),
+              for (final set in _storage.logitBiasSets)
+                DropdownMenuItem(value: set.id, child: Text(set.name)),
+            ],
+            onChanged: (v) => setState(() => _s.logitBiasSetId = v ?? ''),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
             title: const Text('Silent mode'),
             subtitle: const Text(
               'Do not read answers aloud after dictated messages',
@@ -286,6 +313,7 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
                   inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                   decoration: const InputDecoration(
                     labelText: 'Max tokens',
+                    helperText: '0 = server default',
                     border: OutlineInputBorder(),
                   ),
                 ),

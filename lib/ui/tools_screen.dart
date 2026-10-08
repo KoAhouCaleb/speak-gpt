@@ -42,10 +42,19 @@ class _ToolsScreenState extends State<ToolsScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          const Text(
-            'Tools only work in chats where Tools is turned on in the chat settings, with a model that supports function calling.',
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Use tools in new chats'),
+            subtitle: const Text(
+              'Chats you already have keep their own setting (chat settings > Tools). '
+              'The model must support function calling.',
+            ),
+            value: storage.defaultChatSettings.functionCalling,
+            onChanged: (v) => storage.saveDefaultChatSettings(
+              storage.defaultChatSettings..functionCalling = v,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           TextField(
             controller: _searx,
             keyboardType: TextInputType.url,
