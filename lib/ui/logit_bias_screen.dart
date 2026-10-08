@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../models/models.dart';
 import '../services/storage.dart';
 import 'dialogs.dart';
+import 'form_dialogs.dart';
 
 class LogitBiasListScreen extends StatelessWidget {
   const LogitBiasListScreen({super.key});
@@ -133,74 +133,13 @@ class LogitBiasEditScreen extends StatelessWidget {
     LogitBiasSet current,
     String? token,
   ) async {
-    final tokenController = TextEditingController(text: token ?? '');
-    final biasController = TextEditingController(
-      text: token == null ? '' : '${current.biases[token]}',
+    final result = await showLogitBiasEntryDialog(
+      context,
+      token: token,
+      bias: token == null ? null : current.biases[token],
     );
-    String? error;
-
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: Text(token == null ? 'Add token' : 'Edit token'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: tokenController,
-                enabled: token == null,
-                keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                decoration: const InputDecoration(labelText: 'Token id'),
-              ),
-              TextField(
-                controller: biasController,
-                keyboardType: const TextInputType.numberWithOptions(
-                  signed: true,
-                ),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'-?\d*')),
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Bias (-100 to 100)',
-                  errorText: error,
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final bias = int.tryParse(biasController.text);
-                if (tokenController.text.isEmpty ||
-                    bias == null ||
-                    bias < -100 ||
-                    bias > 100) {
-                  setState(
-                    () =>
-                        error = 'Enter a token id and a bias from -100 to 100',
-                  );
-                  return;
-                }
-                Navigator.pop(ctx, true);
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (ok == true) {
-      current.biases[tokenController.text] = int.parse(biasController.text);
-      await storage.saveLogitBiasSet(current);
-    }
-    tokenController.dispose();
-    biasController.dispose();
+    if (result == null) return;
+    current.biases[result.token] = result.bias;
+    await storage.saveLogitBiasSet(current);
   }
 }

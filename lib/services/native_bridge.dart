@@ -98,6 +98,18 @@ class NativeBridge {
     }
   }
 
+  /// PEM text of the certificate authorities the user installed on the device.
+  static Future<List<String>> userCertificates() async {
+    try {
+      final list = await _channel.invokeMethod<List>('userCertificates') ?? [];
+      return list.whereType<String>().toList();
+    } on PlatformException {
+      return [];
+    } on MissingPluginException {
+      return [];
+    }
+  }
+
   static Future<bool> isDefaultAssistant() async {
     try {
       return await _channel.invokeMethod<bool>('isDefaultAssistant') ?? false;

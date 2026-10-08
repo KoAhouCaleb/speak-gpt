@@ -24,6 +24,8 @@ dependencies:
   flutter_tts: ^4.2.0
   zxing2: ^0.2.4
   image: ^4.10.1
+  record: ^6.2.1
+  audioplayers: ^6.7.1
 
 dev_dependencies:
   flutter_test:

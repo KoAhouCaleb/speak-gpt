@@ -41,7 +41,7 @@ class AssistOverlayScreen extends StatefulWidget {
 
 class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   late final Storage _storage;
-  final _speech = SpeechService();
+  late final SpeechService _speech;
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
@@ -58,6 +58,7 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   void initState() {
     super.initState();
     _storage = context.read<Storage>();
+    _speech = SpeechService(_storage);
     // Another invocation while the sheet is open starts over
     NativeBridge.listen(onAssist: _startOver);
     _loadCapture();
@@ -132,7 +133,7 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
             mounted ? confirmToolDialog(context, tool, args) : false)
         ..onAnswer = (answer) {
           if (_storage.speakReplies) {
-            _speech.speak(answer, locale: _storage.speechLocale);
+            _speak(answer);
           }
         };
     }
@@ -181,6 +182,15 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       return;
     }
     setState(() => _listening = true);
+  }
+
+  Future<void> _speak(String text) async {
+    final error = await _speech.speak(text, locale: _storage.speechLocale);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not read aloud: $error')));
+    }
   }
 
   Future<void> _stopListening() async {
@@ -249,10 +259,7 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
                               onCopy: () => Clipboard.setData(
                                 ClipboardData(text: messages[i].text),
                               ),
-                              onSpeak: () => _speech.speak(
-                                messages[i].text,
-                                locale: _storage.speechLocale,
-                              ),
+                              onSpeak: () => _speak(messages[i].text),
                               onEdit: () async {
                                 final text = await promptText(
                                   context,

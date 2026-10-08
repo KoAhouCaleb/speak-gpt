@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'services/app_http.dart';
 import 'services/storage.dart';
 import 'theme.dart';
 import 'ui/assist_overlay.dart';
@@ -8,6 +9,7 @@ import 'ui/home_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppHttp.init();
   final storage = await Storage.open();
   runApp(
     ChangeNotifierProvider<Storage>.value(
@@ -22,6 +24,7 @@ Future<void> main() async {
 @pragma('vm:entry-point')
 Future<void> assistOverlayMain() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppHttp.init();
   final storage = await Storage.open();
   runApp(
     ChangeNotifierProvider<Storage>.value(

@@ -236,3 +236,54 @@ class SavedPrompt {
     text: '${json['text'] ?? ''}',
   );
 }
+
+/// A self-hosted OpenAI-compatible speech server.
+///
+/// Speech to text: POST {host}/audio/transcriptions (for example Qwen3-ASR or Whisper servers).
+/// Text to speech: POST {host}/audio/speech and GET {host}/audio/voices (for example Kokoro-FastAPI).
+class SpeechServerConfig {
+  SpeechServerConfig({
+    this.enabled = false,
+    this.host = '',
+    this.apiKey = '',
+    this.model = '',
+    this.voice = 'af_heart',
+    this.language = '',
+  });
+
+  bool enabled;
+
+  /// Base URL including the version segment, such as http://192.168.1.2:8000/v1/
+  String host;
+  String apiKey;
+  String model;
+
+  /// Text to speech only.
+  String voice;
+
+  /// Speech to text only: language hint such as "en". Empty lets the server detect it.
+  String language;
+
+  /// Whether the server should be used instead of the built-in engine.
+  bool get active => enabled && host.trim().isNotEmpty;
+
+  Map<String, dynamic> toJson() => {
+    'enabled': enabled,
+    'host': host,
+    'model': model,
+    'voice': voice,
+    'language': language,
+  };
+
+  factory SpeechServerConfig.fromJson(
+    Map<String, dynamic> json,
+    String apiKey,
+  ) => SpeechServerConfig(
+    enabled: json['enabled'] == true,
+    host: '${json['host'] ?? ''}',
+    apiKey: apiKey,
+    model: '${json['model'] ?? ''}',
+    voice: '${json['voice'] ?? 'af_heart'}',
+    language: '${json['language'] ?? ''}',
+  );
+}

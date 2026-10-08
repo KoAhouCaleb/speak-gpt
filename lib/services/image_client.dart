@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
+import 'app_http.dart';
+
 /// Image generation through the /images/generations endpoint of an OpenAI-compatible API.
 class ImageClient {
   /// Generates one image and saves it in the app documents folder. Returns the file path.
@@ -16,7 +18,7 @@ class ImageClient {
     http.Client? client,
     Directory? outputDir,
   }) async {
-    final c = client ?? http.Client();
+    final c = client ?? AppHttp.newClient();
     try {
       final body = <String, dynamic>{
         'model': model,

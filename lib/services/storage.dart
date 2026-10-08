@@ -33,8 +33,16 @@ class Storage extends ChangeNotifier {
         ),
       );
     }
+    await _readKeys();
+  }
+
+  Future<void> _readKeys() async {
     for (final e in endpointsRaw) {
       _keys[e.id] = await _secure.read(key: 'endpoint_key_${e.id}') ?? '';
+    }
+    for (final type in [speechStt, speechTts]) {
+      _speechKeys[type] =
+          await _secure.read(key: 'speech_server_key_$type') ?? '';
     }
   }
 
@@ -43,9 +51,7 @@ class Storage extends ChangeNotifier {
   Future<void> reload() async {
     await _prefs.reload();
     _keys.clear();
-    for (final e in endpointsRaw) {
-      _keys[e.id] = await _secure.read(key: 'endpoint_key_${e.id}') ?? '';
-    }
+    await _readKeys();
     notifyListeners();
   }
 
@@ -159,6 +165,39 @@ class Storage extends ChangeNotifier {
         'time': DateTime.now().millisecondsSinceEpoch,
       }),
     );
+  }
+
+  // ---- Speech servers ------------------------------------------------------
+
+  static const speechStt = 'stt';
+  static const speechTts = 'tts';
+
+  final Map<String, String> _speechKeys = {};
+
+  /// Configuration of the self-hosted server for [type] ('stt' or 'tts').
+  SpeechServerConfig speechServer(String type) {
+    final raw = _prefs.getString('speech_server_$type');
+    if (raw != null) {
+      try {
+        return SpeechServerConfig.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+          _speechKeys[type] ?? '',
+        );
+      } catch (_) {
+        // Fall through to the defaults
+      }
+    }
+    return SpeechServerConfig(
+      apiKey: _speechKeys[type] ?? '',
+      model: type == speechStt ? 'whisper-1' : 'kokoro',
+    );
+  }
+
+  Future<void> saveSpeechServer(String type, SpeechServerConfig config) async {
+    await _prefs.setString('speech_server_$type', jsonEncode(config.toJson()));
+    _speechKeys[type] = config.apiKey;
+    await _secure.write(key: 'speech_server_key_$type', value: config.apiKey);
+    notifyListeners();
   }
 
   // ---- Logit bias sets ---------------------------------------------------

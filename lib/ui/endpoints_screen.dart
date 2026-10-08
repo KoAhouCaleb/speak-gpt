@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/models.dart';
 import '../services/storage.dart';
 import 'dialogs.dart';
+import 'form_dialogs.dart';
 
 class EndpointsScreen extends StatelessWidget {
   const EndpointsScreen({super.key});
@@ -51,64 +52,7 @@ class EndpointsScreen extends StatelessWidget {
 
   Future<void> _edit(BuildContext context, ApiEndpoint? existing) async {
     final storage = context.read<Storage>();
-    final label = TextEditingController(text: existing?.label ?? '');
-    final host = TextEditingController(
-      text: existing?.host ?? 'https://api.openai.com/v1/',
-    );
-    final key = TextEditingController(text: existing?.apiKey ?? '');
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? 'Add endpoint' : 'Edit endpoint'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: label,
-                enabled: existing == null,
-                decoration: const InputDecoration(labelText: 'Label'),
-              ),
-              TextField(
-                controller: host,
-                keyboardType: TextInputType.url,
-                decoration: const InputDecoration(labelText: 'Base URL'),
-              ),
-              TextField(
-                controller: key,
-                obscureText: true,
-                decoration: const InputDecoration(labelText: 'API key'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-
-    if (saved == true &&
-        label.text.trim().isNotEmpty &&
-        host.text.trim().isNotEmpty) {
-      await storage.saveEndpoint(
-        ApiEndpoint(
-          label: label.text.trim(),
-          host: host.text.trim(),
-          apiKey: key.text.trim(),
-        ),
-      );
-    }
-    label.dispose();
-    host.dispose();
-    key.dispose();
+    final saved = await showEndpointDialog(context, existing);
+    if (saved != null) await storage.saveEndpoint(saved);
   }
 }

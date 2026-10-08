@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../models/models.dart';
+import 'app_http.dart';
 import 'chat_stream_client.dart';
 import 'image_client.dart';
 import 'storage.dart';
@@ -21,7 +22,7 @@ class ChatSession extends ChangeNotifier {
     ToolContext? toolContext,
     http.Client Function()? clientFactory,
   }) : messages = storage.messages(chatId),
-       _clientFactory = clientFactory ?? http.Client.new {
+       _clientFactory = clientFactory ?? AppHttp.newClient {
     _toolContext = toolContext;
   }
 

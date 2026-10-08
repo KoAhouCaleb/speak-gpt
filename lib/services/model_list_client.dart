@@ -2,13 +2,25 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'app_http.dart';
+
 /// Fetches the model list from the /models endpoint of an OpenAI-compatible API.
 class ModelListClient {
-  static Future<List<String>> fetchModels(String host, String apiKey) async {
+  static Future<List<String>> fetchModels(
+    String host,
+    String apiKey, {
+    http.Client? client,
+  }) async {
     final url = Uri.parse('${host.replaceAll(RegExp(r'/+$'), '')}/models');
-    final response = await http
-        .get(url, headers: {'Authorization': 'Bearer $apiKey'})
-        .timeout(const Duration(seconds: 30));
+    final c = client ?? AppHttp.newClient();
+    final http.Response response;
+    try {
+      response = await c
+          .get(url, headers: {'Authorization': 'Bearer $apiKey'})
+          .timeout(const Duration(seconds: 30));
+    } finally {
+      if (client == null) c.close();
+    }
 
     if (response.statusCode != 200) {
       throw Exception('HTTP ${response.statusCode}: ${response.body}');

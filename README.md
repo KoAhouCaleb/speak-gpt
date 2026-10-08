@@ -22,7 +22,8 @@ Ported:
 - API endpoints with keys in secure storage, presets from `assets/ai_sets.json`, prompts library, image library.
 - Vision: attach pictures from the gallery or camera.
 - Image generation with `/imagine <description>`.
-- Voice: dictation (speech_to_text) and reading answers aloud (flutter_tts).
+- Voice: dictation (speech_to_text) and reading answers aloud (flutter_tts), or your own OpenAI-compatible speech servers (`/audio/transcriptions` and `/audio/speech`, tested against the Qwen3-ASR and Kokoro-FastAPI shapes) under Settings > Speech servers.
+- Self-hosted friendly networking: plain http addresses are allowed, and certificate authorities installed by the user in the Android settings are trusted by every request (Android's network security config plus the same certificates handed to the Dart HTTP client).
 - Tools (function calling), each off, ask-each-time or allowed: date and time, read screen, QR code reading from the captured screenshot (pure Dart, several codes per screen), list and open apps, navigation with stops, music search, call and text (contact lookup), open web page, browser search, internet search through SearXNG, image generation.
 - Digital assistant: see below.
 - Light, dark and AMOLED themes.

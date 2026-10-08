@@ -9,6 +9,8 @@
     <uses-feature android:name="android.hardware.microphone" android:required="false"/>
     <application
         android:label="@string/app_label"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:usesCleartextTraffic="true"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
@@ -46,6 +48,21 @@
             <meta-data
                 android:name="io.flutter.embedding.android.NormalTheme"
                 android:resource="@style/OverlayTheme"/>
+            <!-- The assistant role needs an activity that answers ASSIST, or Grace is not offered
+                 in Settings > Default apps > Digital assistant app -->
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <!-- Headset button long press -->
+            <intent-filter>
+                <action android:name="android.intent.action.VOICE_COMMAND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.speech.action.VOICE_SEARCH_HANDS_FREE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
         </activity>
         <service
             android:name=".assist.GraceInteractionService"
@@ -64,6 +81,16 @@
             android:name=".assist.GraceSessionService"
             android:exported="true"
             android:permission="android.permission.BIND_VOICE_INTERACTION"/>
+
+        <service
+            android:name=".assist.AssistRecognitionService"
+            android:exported="true"
+            android:label="@string/app_label">
+            <intent-filter>
+                <action android:name="android.speech.RecognitionService"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+            </intent-filter>
+        </service>
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

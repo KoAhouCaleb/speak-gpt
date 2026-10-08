@@ -8,6 +8,7 @@ import 'endpoints_screen.dart';
 import 'images_screen.dart';
 import 'logit_bias_screen.dart';
 import 'prompts_screen.dart';
+import 'speech_servers_screen.dart';
 import 'tools_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -143,6 +144,14 @@ class _SettingsScreenState extends State<SettingsScreen>
             onChanged: storage.setAutoAttachScreen,
           ),
           _header('Voice'),
+          ListTile(
+            leading: const Icon(Icons.dns_outlined),
+            title: const Text('Speech servers'),
+            subtitle: const Text(
+              'Your own speech to text and text to speech servers',
+            ),
+            onTap: () => _push(const SpeechServersScreen()),
+          ),
           SwitchListTile(
             secondary: const Icon(Icons.volume_up_outlined),
             title: const Text('Read answers aloud'),

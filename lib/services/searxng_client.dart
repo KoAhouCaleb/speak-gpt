@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import 'app_http.dart';
+
 /// Web search through a user-provided SearXNG instance.
 ///
 /// Uses the JSON format of the search API (https://docs.searxng.org/dev/search_api.html),
@@ -26,7 +28,7 @@ class SearxngClient {
       path: '${uri.path}/search',
       queryParameters: {'q': query, 'format': 'json'},
     );
-    final c = client ?? http.Client();
+    final c = client ?? AppHttp.newClient();
     try {
       final response = await c
           .get(

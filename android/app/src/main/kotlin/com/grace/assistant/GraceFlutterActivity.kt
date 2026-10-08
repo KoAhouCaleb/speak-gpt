@@ -8,6 +8,8 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.util.Base64
+import java.security.KeyStore
 import com.grace.assistant.assist.AssistStore
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -24,6 +26,7 @@ open class GraceFlutterActivity : FlutterActivity() {
         const val ACTION_ASSIST = "com.grace.assistant.action.ASSIST"
         const val ACTION_OPEN_CHAT = "com.grace.assistant.action.OPEN_CHAT"
         const val EXTRA_CHAT_ID = "chatId"
+        const val ACTION_VOICE_SEARCH_HANDS_FREE = "android.speech.action.VOICE_SEARCH_HANDS_FREE"
         private const val CHANNEL = "com.grace.assistant/native"
         private const val CONTACTS_REQUEST = 4201
     }
@@ -39,11 +42,18 @@ open class GraceFlutterActivity : FlutterActivity() {
 
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         super.onCreate(savedInstanceState)
-        when (intent?.action) {
-            ACTION_ASSIST -> pendingAssist = true
-            ACTION_OPEN_CHAT -> pendingChatId = intent?.getStringExtra(EXTRA_CHAT_ID)
+        when {
+            intent?.action == ACTION_ASSIST || isSystemAssistAction(intent?.action) -> {
+                // Launched by the system without a session: nothing fresh was captured
+                if (isSystemAssistAction(intent?.action)) AssistStore.clear(this)
+                pendingAssist = true
+            }
+            intent?.action == ACTION_OPEN_CHAT -> pendingChatId = intent?.getStringExtra(EXTRA_CHAT_ID)
         }
     }
+
+    private fun isSystemAssistAction(action: String?): Boolean =
+        action == Intent.ACTION_ASSIST || action == Intent.ACTION_VOICE_COMMAND || action == ACTION_VOICE_SEARCH_HANDS_FREE
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -56,12 +66,13 @@ open class GraceFlutterActivity : FlutterActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
 
-        when (intent.action) {
-            ACTION_ASSIST -> {
+        when {
+            intent.action == ACTION_ASSIST || isSystemAssistAction(intent.action) -> {
+                if (isSystemAssistAction(intent.action)) AssistStore.clear(this)
                 val capture = AssistStore.read(this)
                 channel?.invokeMethod("onAssist", capture?.toMap() ?: emptyMap<String, Any>())
             }
-            ACTION_OPEN_CHAT -> intent.getStringExtra(EXTRA_CHAT_ID)?.let { channel?.invokeMethod("onOpenChat", it) }
+            intent.action == ACTION_OPEN_CHAT -> intent.getStringExtra(EXTRA_CHAT_ID)?.let { channel?.invokeMethod("onOpenChat", it) }
         }
     }
 
@@ -89,6 +100,7 @@ open class GraceFlutterActivity : FlutterActivity() {
                 openAssistantSettings()
                 result.success(null)
             }
+            "userCertificates" -> result.success(userCertificates())
             "listApps" -> result.success(listApps())
             "openApp" -> result.success(openApp(call.argument<String>("name") ?: ""))
             "findContact" -> findContact(call.argument<String>("name") ?: "", result)
@@ -146,6 +158,28 @@ open class GraceFlutterActivity : FlutterActivity() {
             } catch (_: Exception) {
                 // Try the next screen
             }
+        }
+    }
+
+    /**
+     * Certificate authorities the user installed in the device settings, as PEM text.
+     * Android's own network stack trusts them through the network security config, but the
+     * Dart HTTP client does not read the system store, so they are handed over explicitly.
+     */
+    private fun userCertificates(): List<String> {
+        return try {
+            val store = KeyStore.getInstance("AndroidCAStore")
+            store.load(null)
+            store.aliases().toList()
+                // User installed certificates are stored under "user:<hash>" aliases
+                .filter { it.startsWith("user:") }
+                .mapNotNull { store.getCertificate(it) }
+                .map { cert ->
+                    val body = Base64.encodeToString(cert.encoded, Base64.NO_WRAP).chunked(64).joinToString("\n")
+                    "-----BEGIN CERTIFICATE-----\n$body\n-----END CERTIFICATE-----\n"
+                }
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 

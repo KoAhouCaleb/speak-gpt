@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/storage.dart';
 import 'chats_screen.dart';
 import 'dialogs.dart';
+import 'form_dialogs.dart';
 
 /// Saved prompts. A prompt can start a chat as its system message or as the first message.
 class PromptsScreen extends StatelessWidget {
@@ -115,59 +116,18 @@ class PromptsScreen extends StatelessWidget {
     Storage storage,
     SavedPrompt? existing,
   ) async {
-    final title = TextEditingController(text: existing?.title ?? '');
-    final text = TextEditingController(text: existing?.text ?? '');
-
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(existing == null ? 'Add prompt' : 'Edit prompt'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: title,
-                decoration: const InputDecoration(labelText: 'Title'),
-              ),
-              TextField(
-                controller: text,
-                minLines: 4,
-                maxLines: 10,
-                decoration: const InputDecoration(labelText: 'Prompt'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Save'),
-          ),
-        ],
+    final result = await showPromptDialog(context, existing);
+    if (result == null) return;
+    await storage.savePrompt(
+      SavedPrompt(
+        id:
+            existing?.id ??
+            sha256Hex(
+              '${DateTime.now().microsecondsSinceEpoch}${result.title}',
+            ),
+        title: result.title,
+        text: result.text,
       ),
     );
-
-    if (saved == true &&
-        title.text.trim().isNotEmpty &&
-        text.text.trim().isNotEmpty) {
-      await storage.savePrompt(
-        SavedPrompt(
-          id:
-              existing?.id ??
-              sha256Hex(
-                '${DateTime.now().microsecondsSinceEpoch}${title.text}',
-              ),
-          title: title.text.trim(),
-          text: text.text.trim(),
-        ),
-      );
-    }
-    title.dispose();
-    text.dispose();
   }
 }

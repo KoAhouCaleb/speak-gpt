@@ -9,39 +9,76 @@ Future<String?> promptText(
   String initial = '',
   String? Function(String value)? validator,
 }) {
-  final controller = TextEditingController(text: initial);
-  String? error;
-
   return showDialog<String>(
     context: context,
-    builder: (ctx) => StatefulBuilder(
-      builder: (ctx, setState) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          decoration: InputDecoration(labelText: label, errorText: error),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final problem = validator?.call(controller.text);
-              if (problem != null) {
-                setState(() => error = problem);
-                return;
-              }
-              Navigator.pop(ctx, controller.text);
-            },
-            child: const Text('OK'),
-          ),
-        ],
-      ),
+    builder: (_) => _PromptTextDialog(
+      title: title,
+      label: label,
+      initial: initial,
+      validator: validator,
     ),
   );
+}
+
+// The controller lives in the dialog's State so it is only disposed once the dialog has
+// left the tree. Disposing it after showDialog returns breaks the closing animation.
+class _PromptTextDialog extends StatefulWidget {
+  const _PromptTextDialog({
+    required this.title,
+    required this.label,
+    required this.initial,
+    this.validator,
+  });
+
+  final String title;
+  final String label;
+  final String initial;
+  final String? Function(String value)? validator;
+
+  @override
+  State<_PromptTextDialog> createState() => _PromptTextDialogState();
+}
+
+class _PromptTextDialogState extends State<_PromptTextDialog> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initial,
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final problem = widget.validator?.call(_controller.text);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    Navigator.pop(context, _controller.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: InputDecoration(labelText: widget.label, errorText: _error),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('OK')),
+      ],
+    );
+  }
 }
 
 Future<bool> confirm(

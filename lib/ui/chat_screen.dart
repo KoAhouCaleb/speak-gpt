@@ -32,7 +32,7 @@ class ChatScreen extends StatefulWidget {
 class _ChatScreenState extends State<ChatScreen> {
   late final ChatSession _session;
   late final Storage _storage;
-  final _speech = SpeechService();
+  late final SpeechService _speech;
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
@@ -46,12 +46,13 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     _storage = context.read<Storage>();
+    _speech = SpeechService(_storage);
     _session = ChatSession(_storage, widget.chat.id)
       ..addListener(_onChange)
       ..confirmTool = _confirmTool
       ..onAnswer = (text) {
         if (_storage.speakReplies) {
-          _speech.speak(text, locale: _storage.speechLocale);
+          _speak(text);
         }
       };
 
@@ -211,6 +212,15 @@ class _ChatScreenState extends State<ChatScreen> {
     setState(() => _listening = true);
   }
 
+  Future<void> _speak(String text) async {
+    final error = await _speech.speak(text, locale: _storage.speechLocale);
+    if (error != null && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not read aloud: $error')));
+    }
+  }
+
   Future<void> _stopListening() async {
     await _speech.stopListening();
     if (mounted) setState(() => _listening = false);
@@ -322,10 +332,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       onCopy: () => Clipboard.setData(
                         ClipboardData(text: messages[i].text),
                       ),
-                      onSpeak: () => _speech.speak(
-                        messages[i].text,
-                        locale: storage.speechLocale,
-                      ),
+                      onSpeak: () => _speak(messages[i].text),
                       onEdit: () async {
                         final text = await promptText(
                           context,
