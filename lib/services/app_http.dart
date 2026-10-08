@@ -16,14 +16,15 @@ class AppHttp {
   AppHttp._();
 
   static SecurityContext? _context;
+  static List<String> _userPems = const [];
 
   /// Number of user installed certificate authorities that were added, for diagnostics.
   static int userCertificateCount = 0;
 
   /// Loads the user certificates. Call once at startup, before any request.
   static Future<void> init() async {
-    final pems = await NativeBridge.userCertificates();
-    _context = buildContext(pems);
+    _userPems = await NativeBridge.userCertificates();
+    _context = buildContext(_userPems);
   }
 
   /// A context that trusts the system roots plus the given PEM certificates. Returns null
@@ -44,7 +45,20 @@ class AppHttp {
     return userCertificateCount == 0 ? null : context;
   }
 
-  static http.Client newClient() {
+  /// [extraPem] is a certificate to trust for this client only, for example the self-signed
+  /// certificate of one server.
+  static http.Client newClient({String? extraPem}) {
+    if (extraPem != null && extraPem.trim().isNotEmpty) {
+      final context = SecurityContext(withTrustedRoots: true);
+      for (final pem in [..._userPems, extraPem]) {
+        try {
+          context.setTrustedCertificatesBytes(utf8.encode(pem));
+        } on TlsException {
+          // Already trusted or unreadable, the others still apply
+        }
+      }
+      return IOClient(HttpClient(context: context));
+    }
     final context = _context;
     return context == null
         ? http.Client()

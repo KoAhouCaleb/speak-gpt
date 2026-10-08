@@ -96,4 +96,48 @@ void main() {
     final created = await storage.addChat('new');
     expect(storage.chatSettings(created.id).functionCalling, isTrue);
   });
+
+  testWidgets('the tools screen saves the task server settings', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(900, 5000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await open(tester, const ToolsScreen());
+
+    for (final label in [
+      'Task server (Super Productivity)',
+      'Server URL',
+      'Access token',
+      'Encryption password',
+      'Server certificate (optional)',
+      'Save and test',
+    ]) {
+      expect(find.text(label), findsWidgets, reason: label);
+    }
+    expect(storage.supersyncConfigured, isFalse);
+
+    Finder field(String label) => find.widgetWithText(TextField, label);
+    await tester.enterText(field('Server URL'), 'https://sync.home');
+    await tester.enterText(field('Access token'), 'jwt-token');
+    await tester.enterText(field('Encryption password'), 'secret');
+    await tester.enterText(
+      field('Server certificate (optional)'),
+      '-----BEGIN CERTIFICATE-----',
+    );
+    // The connection test runs against a host that does not exist and reports the failure
+    await tester.runAsync(() async {
+      await tester.tap(find.text('Save and test'));
+      await Future<void>.delayed(const Duration(seconds: 2));
+    });
+    await tester.pump();
+
+    expect(storage.supersyncUrl, 'https://sync.home');
+    expect(storage.supersyncToken, 'jwt-token');
+    expect(storage.supersyncPassword, 'secret');
+    expect(storage.supersyncCertificate, '-----BEGIN CERTIFICATE-----');
+    expect(storage.supersyncConfigured, isTrue);
+    expect(storage.supersyncClientId, startsWith('Grace_'));
+    expect(storage.supersyncClientId, matches(RegExp(r'^[A-Za-z0-9_-]+$')));
+  });
 }

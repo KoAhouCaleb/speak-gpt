@@ -1,13 +1,17 @@
+import 'dart:io';
+
 import 'package:assistant/models/models.dart';
 import 'package:assistant/services/storage.dart';
+import 'package:assistant/services/supersync/payload_crypto.dart';
+import 'package:assistant/services/supersync/supersync_client.dart';
+import 'package:assistant/services/supersync/supersync_tasks.dart';
 import 'package:assistant/services/tools.dart';
-import 'package:assistant/ui/todos_screen.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'fake_supersync.dart';
 
 const _channel = MethodChannel('com.grace.assistant/native');
 
@@ -225,67 +229,90 @@ void main() {
     });
   });
 
-  group('to-do list', () {
-    test('add, list, complete and delete', () async {
-      await run('add_todo', {'title': 'Buy milk', 'due': '2026-10-09'});
-      await run('add_todo', {'title': 'Buy bread'});
-      expect(storage.todos, hasLength(2));
+  group('task tools (SuperSync)', () {
+    late FakeSuperSync server;
+    late Directory dir;
 
-      final listed = (await run('list_todos', {})).text;
+    setUp(() async {
+      final crypto = PayloadCrypto('pw', memory: 8, iterations: 1);
+      server = FakeSuperSync(crypto);
+      await server.seedFullState(fixtureState());
+      dir = Directory.systemTemp.createTempSync('task_tools');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final service = SuperSyncTasks(
+        client: SuperSyncClient(
+          url: 'https://sync.example',
+          token: 'tok',
+          clientId: 'Grace_tools',
+          clientFactory: server.client,
+        ),
+        cacheFile: File('${dir.path}/c.json'),
+        crypto: crypto,
+      );
+      ctx = ToolContext(
+        storage: storage,
+        chatSettings: ChatSettings(),
+        launch: (u) async => true,
+        tasks: () async => service,
+      );
+    });
+
+    test('list, add, complete and delete', () async {
+      final listed = (await run('list_tasks', {})).text;
       expect(listed, contains('Buy milk'));
-      expect(listed, contains('due 2026-10-09T00:00'));
+      expect(listed, contains('(project: Work)'));
+      expect(listed, contains('(due 2026-10-08)'));
 
-      await run('update_todo', {'title': 'milk', 'done': true});
-      expect((await run('list_todos', {})).text, isNot(contains('Buy milk')));
+      final added = await run('add_task', {
+        'title': 'Pay rent',
+        'due': '2026-10-10T09:30',
+        'project': 'work',
+        'notes': 'monthly',
+      });
+      expect(added.text, contains('Pay rent'));
+      expect(added.text, contains('(due 2026-10-10T09:30)'));
+
+      await run('update_task', {'title': 'milk', 'done': true});
+      expect((await run('list_tasks', {})).text, isNot(contains('Buy milk')));
       expect(
-        (await run('list_todos', {'include_done': true})).text,
+        (await run('list_tasks', {'include_done': true})).text,
         contains('(done) Buy milk'),
       );
 
-      await run('delete_todo', {'title': 'Buy bread'});
-      expect(storage.todos.single.title, 'Buy milk');
-    });
-
-    test('an ambiguous title is refused with the candidates', () async {
-      await run('add_todo', {'title': 'Call mom'});
-      await run('add_todo', {'title': 'Call dentist'});
-      expect(
-        () => run('delete_todo', {'title': 'call'}),
-        throwsA(predicate((e) => e.toString().contains('Several tasks'))),
-      );
-      expect(storage.todos, hasLength(2));
+      await run('delete_task', {'title': 'Pay rent'});
+      expect((await run('list_tasks', {})).text, isNot(contains('Pay rent')));
     });
 
     test('the due date can be changed and removed', () async {
-      await run('add_todo', {'title': 'Report'});
-      await run('update_todo', {'title': 'Report', 'due': '2026-11-01T09:00'});
-      expect(storage.todos.single.due, DateTime(2026, 11, 1, 9));
-      await run('update_todo', {'title': 'Report', 'due': 'none'});
-      expect(storage.todos.single.due, isNull);
+      await run('update_task', {'title': 'report', 'due': '2026-11-01T09:00'});
+      expect(
+        (await run('list_tasks', {'search': 'report'})).text,
+        contains('(due 2026-11-01T09:00)'),
+      );
+      await run('update_task', {'title': 'report', 'due': 'none'});
+      expect(
+        (await run('list_tasks', {'search': 'report'})).text,
+        isNot(contains('due')),
+      );
     });
 
-    testWidgets('the screen shows, checks and adds tasks', (tester) async {
-      await tester.runAsync(() async {
-        await storage.saveTodo(TodoItem(id: 'a', title: 'Water plants'));
-      });
-      await tester.pumpWidget(
-        ChangeNotifierProvider<Storage>.value(
-          value: storage,
-          child: const MaterialApp(home: TodosScreen()),
-        ),
+    test('bad input is explained', () async {
+      expect(
+        () => run('add_task', {'title': 'x', 'due': 'tomorrow'}),
+        throwsA(predicate((e) => e.toString().contains('2026-10-08'))),
       );
-      expect(find.text('Water plants'), findsOneWidget);
+      expect(
+        () => run('update_task', {'title': 'nothing here'}),
+        throwsA(predicate((e) => e.toString().contains('No task matches'))),
+      );
+    });
 
-      await tester.tap(find.byType(Checkbox));
-      await tester.pump();
-      expect(storage.todos.single.done, isTrue);
-
-      await tester.tap(find.byTooltip('Add task'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).first, 'Pay rent');
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-      expect(storage.todos.map((t) => t.title), contains('Pay rent'));
+    test('without settings the tools say what is missing', () async {
+      final bare = ToolContext(storage: storage, chatSettings: ChatSettings());
+      expect(
+        () => toolByName('list_tasks')!.run({}, bare),
+        throwsA(predicate((e) => e.toString().contains('not set up'))),
+      );
     });
   });
 }

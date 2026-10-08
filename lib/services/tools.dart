@@ -6,6 +6,8 @@ import 'native_bridge.dart';
 import 'qr_reader.dart';
 import 'searxng_client.dart';
 import 'storage.dart';
+import 'supersync/supersync_factory.dart';
+import 'supersync/supersync_tasks.dart';
 
 enum ToolMode {
   disabled,
@@ -36,13 +38,20 @@ class ToolContext {
     required this.storage,
     required this.chatSettings,
     Future<bool> Function(Uri uri)? launch,
-  }) : launch =
+    Future<SuperSyncTasks> Function()? tasks,
+  }) : _tasks = tasks,
+       launch =
            launch ??
            ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication));
 
   final Storage storage;
   final ChatSettings chatSettings;
   final Future<bool> Function(Uri uri) launch;
+  final Future<SuperSyncTasks> Function()? _tasks;
+
+  /// The to-do list on the SuperSync server.
+  Future<SuperSyncTasks> tasks() =>
+      _tasks != null ? _tasks() : superSyncTasksFor(storage);
 }
 
 class AssistantTool {
@@ -694,100 +703,122 @@ final List<AssistantTool> allTools = [
     },
   ),
   AssistantTool(
-    name: 'list_todos',
+    name: 'list_tasks',
     description:
-        'List the tasks of the to-do list kept inside this app. Done tasks are left out unless asked for.',
+        'List the tasks of the user\'s to-do list (Super Productivity). Finished tasks are left out unless asked for.',
     properties: {
       'include_done': {
         'type': 'boolean',
         'description': 'Also list the tasks that are done',
       },
+      'project': _str('Only the tasks of this project, by name'),
+      'search': _str('Only tasks whose title or notes contain this text'),
     },
     required: const [],
     defaultMode: ToolMode.auto,
-    describeCall: (_) => 'Read the to-do list',
+    describeCall: (_) => 'Read the task list',
     run: (args, ctx) async {
-      final includeDone = args['include_done'] == true;
-      final items = ctx.storage.todos
-          .where((t) => includeDone || !t.done)
-          .toList();
-      if (items.isEmpty) return const ToolResult('The to-do list is empty.');
-      return ToolResult(items.map(describeTodo).join('\n'));
+      final tasks = await ctx.tasks();
+      final items = await tasks.list(
+        includeDone: args['include_done'] == true,
+        project: _optArg(args, 'project'),
+        search: _optArg(args, 'search'),
+      );
+      if (items.isEmpty) return const ToolResult('No tasks.');
+      final hint = tasks.ignoredOperations > 0
+          ? '\n(${tasks.ignoredOperations} changes of unsupported kinds were not applied, so the list can be slightly out of date.)'
+          : '';
+      return ToolResult('${items.map(describeTask).join('\n')}$hint');
     },
   ),
   AssistantTool(
-    name: 'add_todo',
-    description: 'Add a task to the to-do list kept inside this app.',
+    name: 'add_task',
+    description:
+        'Add a task to the user\'s to-do list (Super Productivity). Without a project it goes to the Inbox.',
     properties: {
       'title': _str('What has to be done'),
       'due': _str(
-        'Optional due date or moment in local time, like 2026-10-08 or 2026-10-08T15:00',
+        'Optional due date like 2026-10-08, or date and time in local time like 2026-10-08T15:00',
       ),
+      'project': _str('Optional project name'),
       'notes': _str('Optional details'),
     },
     required: const ['title'],
-    defaultMode: ToolMode.auto,
+    defaultMode: ToolMode.confirm,
     describeCall: (a) => 'Add the task "${a['title']}"',
     run: (args, ctx) async {
-      final title = _arg(args, 'title');
-      final item = TodoItem(
-        id: DateTime.now().microsecondsSinceEpoch.toRadixString(36),
-        title: title,
-        notes: _optArg(args, 'notes') ?? '',
-        due: _optDateArg(args, 'due'),
+      final due = _dueArg(args);
+      final task = await (await ctx.tasks()).add(
+        _arg(args, 'title'),
+        notes: _optArg(args, 'notes'),
+        project: _optArg(args, 'project'),
+        dueDay: due?.day,
+        dueWithTime: due?.time,
       );
-      await ctx.storage.saveTodo(item);
-      return ToolResult('Added the task: ${describeTodo(item)}');
+      return ToolResult('Added: ${describeTask(task)}');
     },
   ),
   AssistantTool(
-    name: 'update_todo',
+    name: 'update_task',
     description:
-        'Change a task, or mark it done or not done. Find it by id or by its title.',
+        'Change a task of the to-do list, or mark it done or not done. Find it by id or by title.',
     properties: {
-      'id': _str('Task id from list_todos'),
+      'id': _str('Task id from list_tasks'),
       'title': _str('Current title, if the id is not known'),
       'new_title': _str('New title'),
-      'due': _str('New due date or moment in local time, "none" removes it'),
       'notes': _str('New details'),
       'done': {
         'type': 'boolean',
         'description': 'True when the task is finished',
       },
+      'due': _str(
+        'New due date like 2026-10-08, or date and time like 2026-10-08T15:00. "none" removes it.',
+      ),
+      'project': _str('Move the task to this project, by name'),
     },
     required: const [],
-    defaultMode: ToolMode.auto,
+    defaultMode: ToolMode.confirm,
     describeCall: (a) => 'Change the task "${a['title'] ?? a['id']}"',
     run: (args, ctx) async {
-      final item = findTodo(ctx.storage, args);
-      final newTitle = _optArg(args, 'new_title');
-      if (newTitle != null) item.title = newTitle;
-      final notes = _optArg(args, 'notes');
-      if (notes != null) item.notes = notes;
-      final due = _optArg(args, 'due');
-      if (due != null) {
-        item.due = due.toLowerCase() == 'none' ? null : _dateArg(args, 'due');
-      }
-      if (args['done'] is bool) item.done = args['done'] as bool;
-      await ctx.storage.saveTodo(item);
-      return ToolResult('Updated: ${describeTodo(item)}');
+      final tasks = await ctx.tasks();
+      final target = await tasks.find(
+        id: _optArg(args, 'id'),
+        title: _optArg(args, 'title'),
+      );
+      final clearDue = _optArg(args, 'due')?.toLowerCase() == 'none';
+      final due = clearDue ? null : _dueArg(args);
+      final updated = await tasks.update(
+        target,
+        title: _optArg(args, 'new_title'),
+        notes: _optArg(args, 'notes'),
+        isDone: args['done'] is bool ? args['done'] as bool : null,
+        project: _optArg(args, 'project'),
+        dueDay: due?.day,
+        dueWithTime: due?.time,
+        clearDue: clearDue,
+      );
+      return ToolResult('Updated: ${describeTask(updated)}');
     },
   ),
   AssistantTool(
-    name: 'delete_todo',
+    name: 'delete_task',
     description:
-        'Remove a task from the to-do list. Find it by id or by its title.',
+        'Delete a task, and its subtasks, from the to-do list. Find it by id or by title.',
     properties: {
-      'id': _str('Task id from list_todos'),
+      'id': _str('Task id from list_tasks'),
       'title': _str('Title, if the id is not known'),
     },
     required: const [],
     defaultMode: ToolMode.confirm,
     describeCall: (a) => 'Delete the task "${a['title'] ?? a['id']}"',
     run: (args, ctx) async {
-      final item = findTodo(ctx.storage, args);
-      await ctx.storage.deleteTodo(item.id);
-      return ToolResult('Deleted the task "${item.title}".');
+      final tasks = await ctx.tasks();
+      final target = await tasks.find(
+        id: _optArg(args, 'id'),
+        title: _optArg(args, 'title'),
+      );
+      await tasks.delete(target);
+      return ToolResult('Deleted the task "${target.title}".');
     },
   ),
 ];
@@ -873,34 +904,31 @@ List<int> parseWeekdays(Object? value) {
   return days.toList()..sort();
 }
 
-String describeTodo(TodoItem t) =>
-    '[${t.id}] ${t.done ? '(done) ' : ''}${t.title}'
-    '${t.due == null ? '' : ' (due ${formatMoment(t.due!)})'}'
-    '${t.notes.isEmpty ? '' : ', notes: ${t.notes}'}';
+String describeTask(SyncedTask t) {
+  final due = t.due;
+  return '${t.parentId == null ? '' : '  - '}[${t.id}] ${t.isDone ? '(done) ' : ''}${t.title}'
+      '${t.projectTitle == null ? '' : ' (project: ${t.projectTitle})'}'
+      '${due == null ? '' : ' (due ${t.dueHasTime ? formatMoment(due) : formatDay(due)})'}'
+      '${t.notes.isEmpty ? '' : ', notes: ${t.notes}'}';
+}
 
-/// Finds a to-do by id, else by title (exact, then partial). Throws if the title is ambiguous.
-TodoItem findTodo(Storage storage, Map<String, dynamic> args) {
-  final all = storage.todos;
-  final id = _optArg(args, 'id');
-  if (id != null) {
-    for (final t in all) {
-      if (t.id == id) return t;
+/// "2026-10-08" is a date, "2026-10-08T15:00" a moment.
+({String? day, DateTime? time})? _dueArg(Map<String, dynamic> args) {
+  final text = _optArg(args, 'due');
+  if (text == null || text.toLowerCase() == 'none') return null;
+  if (RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text)) {
+    if (DateTime.tryParse(text) == null) {
+      throw Exception('"due" is not a valid date');
     }
+    return (day: text, time: null);
   }
-  final query = (_optArg(args, 'title') ?? id ?? '').toLowerCase();
-  if (query.isEmpty) throw Exception('Give the id or the title of the task');
-
-  final exact = all.where((t) => t.title.toLowerCase() == query).toList();
-  final matches = exact.isNotEmpty
-      ? exact
-      : all.where((t) => t.title.toLowerCase().contains(query)).toList();
-  if (matches.isEmpty) throw Exception('No task matches "$query"');
-  if (matches.length > 1) {
+  final time = parseLocalDateTime(text);
+  if (time == null) {
     throw Exception(
-      'Several tasks match "$query", use the id: ${matches.map(describeTodo).join('; ')}',
+      '"due" must look like 2026-10-08 or 2026-10-08T15:00, in local time.',
     );
   }
-  return matches.single;
+  return (day: null, time: time);
 }
 
 AssistantTool? toolByName(String name) {

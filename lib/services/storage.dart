@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -40,6 +42,8 @@ class Storage extends ChangeNotifier {
     for (final e in endpointsRaw) {
       _keys[e.id] = await _secure.read(key: 'endpoint_key_${e.id}') ?? '';
     }
+    _supersyncToken = await _secure.read(key: 'supersync_token') ?? '';
+    _supersyncPassword = await _secure.read(key: 'supersync_password') ?? '';
     for (final type in [speechStt, speechTts]) {
       _speechKeys[type] =
           await _secure.read(key: 'speech_server_key_$type') ?? '';
@@ -315,46 +319,44 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- To-do list ----------------------------------------------------------
+  // ---- Task server (Super Productivity SuperSync) ----------------------------
 
-  List<TodoItem> get todos {
-    final raw = _prefs.getString('todos');
-    if (raw == null) return [];
-    try {
-      return (jsonDecode(raw) as List)
-          .map((e) => TodoItem.fromJson(e as Map<String, dynamic>))
-          .toList();
-    } catch (_) {
-      return [];
-    }
+  String _supersyncToken = '';
+  String _supersyncPassword = '';
+
+  String get supersyncUrl => _prefs.getString('supersync_url') ?? '';
+  String get supersyncToken => _supersyncToken;
+  String get supersyncPassword => _supersyncPassword;
+  String get supersyncCertificate =>
+      _prefs.getString('supersync_certificate') ?? '';
+
+  /// Identifies this app on the server. SuperSync allows letters, digits, underscore and hyphen.
+  String get supersyncClientId {
+    final existing = _prefs.getString('supersync_client_id');
+    if (existing != null && existing.isNotEmpty) return existing;
+    final r = Random.secure();
+    final id =
+        'Grace_${List.generate(10, (_) => r.nextInt(36).toRadixString(36)).join()}';
+    unawaited(_prefs.setString('supersync_client_id', id));
+    return id;
   }
 
-  Future<void> _writeTodos(List<TodoItem> items) async {
-    await _prefs.setString(
-      'todos',
-      jsonEncode(items.map((e) => e.toJson()).toList()),
-    );
+  bool get supersyncConfigured =>
+      supersyncUrl.isNotEmpty && supersyncToken.isNotEmpty;
+
+  Future<void> saveSupersync({
+    required String url,
+    required String token,
+    required String password,
+    required String certificate,
+  }) async {
+    await _prefs.setString('supersync_url', url.trim());
+    await _prefs.setString('supersync_certificate', certificate.trim());
+    _supersyncToken = token.trim();
+    await _secure.write(key: 'supersync_token', value: _supersyncToken);
+    _supersyncPassword = password;
+    await _secure.write(key: 'supersync_password', value: password);
     notifyListeners();
-  }
-
-  /// Adds the item, or replaces the one with the same id.
-  Future<void> saveTodo(TodoItem item) async {
-    final all = todos;
-    final i = all.indexWhere((t) => t.id == item.id);
-    if (i >= 0) {
-      all[i] = item;
-    } else {
-      all.add(item);
-    }
-    await _writeTodos(all);
-  }
-
-  Future<void> deleteTodo(String id) async {
-    await _writeTodos(todos.where((t) => t.id != id).toList());
-  }
-
-  Future<void> clearDoneTodos() async {
-    await _writeTodos(todos.where((t) => !t.done).toList());
   }
 
   // ---- Endpoints -------------------------------------------------------
