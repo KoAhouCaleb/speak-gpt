@@ -30,6 +30,20 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // CI provides a fixed debug keystore so every build installs as an update.
+            // Local builds keep using the default ~/.android/debug.keystore.
+            val ciKeystore = System.getenv("DEBUG_KEYSTORE_FILE")
+            if (ciKeystore != null && file(ciKeystore).exists()) {
+                storeFile = file(ciKeystore)
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
