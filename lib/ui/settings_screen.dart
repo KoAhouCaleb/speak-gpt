@@ -125,6 +125,15 @@ class _SettingsScreenState extends State<SettingsScreen>
             onTap: NativeBridge.openAssistantSettings,
           ),
           SwitchListTile(
+            secondary: const Icon(Icons.picture_in_picture_alt_outlined),
+            title: const Text('Compact assistant'),
+            subtitle: const Text(
+              'Open the assistant as a small sheet over the current app instead of full screen',
+            ),
+            value: storage.assistOverlay,
+            onChanged: storage.setAssistOverlay,
+          ),
+          SwitchListTile(
             secondary: const Icon(Icons.screenshot_monitor_outlined),
             title: const Text('Attach the screen automatically'),
             subtitle: const Text(

@@ -13,6 +13,8 @@ import android.service.voice.VoiceInteractionSession
 import android.text.InputType
 import android.util.Log
 import android.view.View
+import com.grace.assistant.AssistOverlayActivity
+import com.grace.assistant.GraceFlutterActivity
 import com.grace.assistant.MainActivity
 
 /**
@@ -185,6 +187,16 @@ class GraceSession(context: Context) : VoiceInteractionSession(context) {
         }
     }
 
+    // Flutter's shared_preferences plugin stores settings in this file with a "flutter." prefix
+    private fun overlayEnabled(): Boolean {
+        return try {
+            context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+                .getBoolean("flutter.assist_overlay", true)
+        } catch (_: Exception) {
+            true
+        }
+    }
+
     private fun maybeLaunch() {
         if (!shown) return
         if ((!expectText || gotText) && (!expectShot || gotShot)) launchGrace()
@@ -195,8 +207,9 @@ class GraceSession(context: Context) : VoiceInteractionSession(context) {
         launched = true
         handler.removeCallbacks(timeout)
 
-        val intent = Intent(context, MainActivity::class.java)
-            .setAction(MainActivity.ACTION_ASSIST)
+        val target = if (overlayEnabled()) AssistOverlayActivity::class.java else MainActivity::class.java
+        val intent = Intent(context, target)
+            .setAction(GraceFlutterActivity.ACTION_ASSIST)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
 
         try {

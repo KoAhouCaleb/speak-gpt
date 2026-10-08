@@ -33,6 +33,20 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name=".AssistOverlayActivity"
+            android:exported="true"
+            android:theme="@style/OverlayTheme"
+            android:launchMode="singleTask"
+            android:taskAffinity="com.grace.assistant.overlay"
+            android:excludeFromRecents="true"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize">
+            <meta-data
+                android:name="io.flutter.embedding.android.NormalTheme"
+                android:resource="@style/OverlayTheme"/>
+        </activity>
         <service
             android:name=".assist.GraceInteractionService"
             android:exported="true"

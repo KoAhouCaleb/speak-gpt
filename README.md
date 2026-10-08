@@ -27,9 +27,11 @@ Ported:
 - Digital assistant: see below.
 - Light, dark and AMOLED themes.
 
-Not ported: the old floating assistant overlay and the translated strings (the UI is English only for now).
+Not ported: the translated strings (the UI is English only for now).
 
 ### Assistant (screen context without accessibility)
+
+The assistant opens as a compact sheet over the current app (`AssistOverlayActivity`, a transparent window running its own Flutter entry point, `assistOverlayMain`). A chat is only created once you send a message. The expand button continues the chat in the main window. The "Compact assistant" setting switches back to opening the full app.
 
 The accessibility service from the native app is gone. Grace registers as a digital assistant (`VoiceInteractionService` in `android/app/src/main/kotlin/com/grace/assistant/assist/`). When the user invokes the assistant gesture, `GraceSession` receives the screen text (`AssistStructure`) and a screenshot from the system, saves them to the cache and opens Grace with a new chat that has them attached.
 

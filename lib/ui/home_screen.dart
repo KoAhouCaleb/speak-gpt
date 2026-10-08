@@ -14,7 +14,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   int _index = 0;
 
   static const _pages = [ChatsScreen(), ExploreScreen(), SettingsScreen()];
@@ -23,12 +23,38 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     // Assistant gesture while the app is already running
-    NativeBridge.listenForAssist(_onAssist);
+    NativeBridge.listen(onAssist: _onAssist, onOpenChat: _openChatById);
+    WidgetsBinding.instance.addObserver(this);
     // Assistant gesture that started the app
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final pending = await NativeBridge.takePendingAssist();
       if (pending != null) _onAssist(pending);
+      final chatId = await NativeBridge.takePendingChatId();
+      if (chatId != null) _openChatById(chatId);
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  // The assistant overlay may have changed chats while this window was in the background
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) context.read<Storage>().reload();
+  }
+
+  Future<void> _openChatById(String chatId) async {
+    if (!mounted) return;
+    final storage = context.read<Storage>();
+    await storage.reload();
+    if (!mounted) return;
+    final chat = storage.chats.where((c) => c.id == chatId).firstOrNull;
+    if (chat == null) return;
+    Navigator.of(context).popUntil((route) => route.isFirst);
+    openChat(context, chat);
   }
 
   /// Opens a new chat with the captured screen attached.

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/tools.dart';
+
 Future<String?> promptText(
   BuildContext context, {
   required String title,
@@ -65,4 +67,31 @@ Future<bool> confirm(
     ),
   );
   return result ?? false;
+}
+
+/// Asks whether the assistant may run a tool. Closing the dialog counts as no.
+Future<bool> confirmToolDialog(
+  BuildContext context,
+  AssistantTool tool,
+  Map<String, dynamic> args,
+) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => AlertDialog(
+      title: const Text('Allow this action?'),
+      content: Text(tool.describeCall(args)),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('Deny'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('Allow'),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
 }

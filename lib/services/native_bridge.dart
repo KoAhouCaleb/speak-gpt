@@ -35,14 +35,43 @@ class NativeBridge {
 
   static const _channel = MethodChannel('com.grace.assistant/native');
 
-  /// Called when the system assistant gesture fires while the app is running.
-  static void listenForAssist(void Function(AssistContext) onAssist) {
+  /// Called when the system assistant gesture fires while the app is running, or when
+  /// the assistant overlay asks to continue a chat in the main window.
+  static void listen({
+    void Function(AssistContext)? onAssist,
+    void Function(String chatId)? onOpenChat,
+  }) {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onAssist') {
-        onAssist(AssistContext.fromMap(call.arguments as Map?));
+        onAssist?.call(AssistContext.fromMap(call.arguments as Map?));
+      } else if (call.method == 'onOpenChat') {
+        onOpenChat?.call('${call.arguments}');
       }
       return null;
     });
+  }
+
+  /// Chat the overlay handed over to a freshly started main window, or null.
+  static Future<String?> takePendingChatId() async {
+    try {
+      return await _channel.invokeMethod<String>('takePendingChatId');
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// Opens the main window on a chat (from the overlay) and closes the overlay.
+  /// With no chat id the main window just opens.
+  static Future<void> openInMainWindow([String? chatId]) async {
+    try {
+      await _channel.invokeMethod<void>('openInMainWindow', {'chatId': chatId});
+    } on PlatformException {
+      // Nothing to do
+    } on MissingPluginException {
+      // Not Android
+    }
   }
 
   /// Context captured for an assist launch that started the app, or null.

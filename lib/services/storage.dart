@@ -38,6 +38,17 @@ class Storage extends ChangeNotifier {
     }
   }
 
+  /// Re-reads everything from disk. The assistant overlay runs in its own Flutter engine
+  /// and writes chats there, so the main window must refresh when it comes back.
+  Future<void> reload() async {
+    await _prefs.reload();
+    _keys.clear();
+    for (final e in endpointsRaw) {
+      _keys[e.id] = await _secure.read(key: 'endpoint_key_${e.id}') ?? '';
+    }
+    notifyListeners();
+  }
+
   // ---- Global settings -------------------------------------------------
 
   bool get showReasoning => _prefs.getBool('show_reasoning') ?? true;
@@ -69,6 +80,14 @@ class Storage extends ChangeNotifier {
   String get speechLocale => _prefs.getString('speech_locale') ?? '';
   Future<void> setSpeechLocale(String v) async {
     await _prefs.setString('speech_locale', v);
+    notifyListeners();
+  }
+
+  /// Open the assistant gesture as a compact sheet over the current app, not full screen.
+  /// The native session reads this key too (flutter.assist_overlay).
+  bool get assistOverlay => _prefs.getBool('assist_overlay') ?? true;
+  Future<void> setAssistOverlay(bool v) async {
+    await _prefs.setBool('assist_overlay', v);
     notifyListeners();
   }
 
