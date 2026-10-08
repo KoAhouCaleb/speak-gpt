@@ -251,3 +251,141 @@ class _LogitBiasEntryDialogState extends State<_LogitBiasEntryDialog> {
     );
   }
 }
+
+/// Add or edit a to-do. Returns null if cancelled.
+Future<TodoItem?> showTodoDialog(BuildContext context, [TodoItem? existing]) {
+  return showDialog<TodoItem>(
+    context: context,
+    builder: (_) => _TodoDialog(existing: existing),
+  );
+}
+
+class _TodoDialog extends StatefulWidget {
+  const _TodoDialog({this.existing});
+
+  final TodoItem? existing;
+
+  @override
+  State<_TodoDialog> createState() => _TodoDialogState();
+}
+
+class _TodoDialogState extends State<_TodoDialog> {
+  late final _title = TextEditingController(text: widget.existing?.title ?? '');
+  late final _notes = TextEditingController(text: widget.existing?.notes ?? '');
+  late DateTime? _due = widget.existing?.due;
+  String? _error;
+
+  @override
+  void dispose() {
+    _title.dispose();
+    _notes.dispose();
+    super.dispose();
+  }
+
+  String _dueLabel() {
+    final d = _due;
+    if (d == null) return 'No due date';
+    final date =
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final hasTime = d.hour != 0 || d.minute != 0;
+    return hasTime
+        ? '$date ${TimeOfDay.fromDateTime(d).format(context)}'
+        : date;
+  }
+
+  Future<void> _pickDue() async {
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: _due ?? now,
+      firstDate: DateTime(now.year - 1),
+      lastDate: DateTime(now.year + 10),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_due ?? now),
+    );
+    if (!mounted) return;
+    setState(() {
+      _due = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time?.hour ?? 0,
+        time?.minute ?? 0,
+      );
+    });
+  }
+
+  void _save() {
+    final title = _title.text.trim();
+    if (title.isEmpty) {
+      setState(() => _error = 'A title is required');
+      return;
+    }
+    Navigator.pop(
+      context,
+      TodoItem(
+        id:
+            widget.existing?.id ??
+            DateTime.now().microsecondsSinceEpoch.toRadixString(36),
+        title: title,
+        notes: _notes.text.trim(),
+        due: _due,
+        done: widget.existing?.done ?? false,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.existing == null ? 'Add task' : 'Edit task'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _title,
+              autofocus: true,
+              decoration: const InputDecoration(labelText: 'Task'),
+            ),
+            TextField(
+              controller: _notes,
+              maxLines: 3,
+              minLines: 1,
+              decoration: const InputDecoration(labelText: 'Notes'),
+            ),
+            const SizedBox(height: 8),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.event_outlined),
+              title: Text(_dueLabel()),
+              onTap: _pickDue,
+              trailing: _due == null
+                  ? null
+                  : IconButton(
+                      tooltip: 'Remove due date',
+                      icon: const Icon(Icons.clear),
+                      onPressed: () => setState(() => _due = null),
+                    ),
+            ),
+            if (_error != null)
+              Text(
+                _error!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
+}

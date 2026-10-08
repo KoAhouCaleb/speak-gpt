@@ -38,6 +38,45 @@ open class GraceFlutterActivity : FlutterActivity() {
 
     private var channel: MethodChannel? = null
 
+    private val calendarPermissions = arrayOf(
+        Manifest.permission.READ_CALENDAR,
+        Manifest.permission.WRITE_CALENDAR,
+    )
+
+    private val permissionCallbacks = mutableMapOf<Int, (Boolean) -> Unit>()
+    private var nextPermissionCode = 4300
+
+    /**
+     * Runs [action] once every permission is granted, asking for the missing ones first, and
+     * answers [result] with its value. A refusal answers "permission_denied".
+     */
+    private fun withPermissions(
+        permissions: Array<String>,
+        what: String,
+        result: MethodChannel.Result,
+        action: () -> Any?,
+    ) {
+        fun run() {
+            try {
+                result.success(action())
+            } catch (e: Exception) {
+                result.error("failed", e.message ?: e.javaClass.simpleName, null)
+            }
+        }
+
+        val missing = permissions.filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) {
+            run()
+            return
+        }
+
+        val code = nextPermissionCode++
+        permissionCallbacks[code] = { granted ->
+            if (granted) run() else result.error("permission_denied", "$what permission denied", null)
+        }
+        requestPermissions(missing.toTypedArray(), code)
+    }
+
     // Launches that started the activity before Flutter could receive them
     private var pendingAssist = false
     private var pendingChatId: String? = null
@@ -126,6 +165,49 @@ open class GraceFlutterActivity : FlutterActivity() {
             "listApps" -> result.success(listApps())
             "openApp" -> result.success(openApp(call.argument<String>("name") ?: ""))
             "findContact" -> findContact(call.argument<String>("name") ?: "", result)
+            "sendSms" -> withPermissions(arrayOf(Manifest.permission.SEND_SMS), "Send SMS", result) {
+                DeviceActions.sendSms(this, call.argument<String>("number") ?: "", call.argument<String>("message") ?: "")
+                null
+            }
+            "calendarEvents" -> withPermissions(arrayOf(Manifest.permission.READ_CALENDAR), "Calendar", result) {
+                DeviceActions.calendarEvents(
+                    this,
+                    call.argument<Number>("from")!!.toLong(),
+                    call.argument<Number>("to")!!.toLong(),
+                )
+            }
+            "calendarAdd" -> withPermissions(calendarPermissions, "Calendar", result) {
+                @Suppress("UNCHECKED_CAST")
+                DeviceActions.calendarAdd(this, call.arguments as Map<String, Any?>)
+            }
+            "calendarUpdate" -> withPermissions(calendarPermissions, "Calendar", result) {
+                @Suppress("UNCHECKED_CAST")
+                DeviceActions.calendarUpdate(this, call.argument<Number>("id")!!.toLong(), call.arguments as Map<String, Any?>)
+            }
+            "calendarDelete" -> withPermissions(calendarPermissions, "Calendar", result) {
+                DeviceActions.calendarDelete(this, call.argument<Number>("id")!!.toLong())
+            }
+            "setAlarm" -> result.success(
+                DeviceActions.setAlarm(
+                    this,
+                    call.argument<Int>("hour") ?: 0,
+                    call.argument<Int>("minute") ?: 0,
+                    call.argument<String>("label"),
+                    call.argument<List<Int>>("days") ?: emptyList(),
+                ),
+            )
+            "setTimer" -> result.success(
+                DeviceActions.setTimer(this, call.argument<Int>("seconds") ?: 0, call.argument<String>("label")),
+            )
+            "showAlarms" -> result.success(DeviceActions.showAlarms(this))
+            "dismissAlarm" -> result.success(
+                DeviceActions.dismissAlarm(
+                    this,
+                    call.argument<Int>("hour"),
+                    call.argument<Int>("minute"),
+                    call.argument<String>("label"),
+                ),
+            )
             else -> result.notImplemented()
         }
     }
@@ -334,6 +416,10 @@ open class GraceFlutterActivity : FlutterActivity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        permissionCallbacks.remove(requestCode)?.let { callback ->
+            callback(grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED })
+            return
+        }
         if (requestCode != CONTACTS_REQUEST) return
 
         val result = pendingContactResult

@@ -12,6 +12,7 @@ import 'logit_bias_screen.dart';
 import 'prompts_screen.dart';
 import 'speech_servers_screen.dart';
 import 'tools_screen.dart';
+import 'todos_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -169,6 +170,12 @@ class _SettingsScreenState extends State<SettingsScreen>
             title: const Text('Tools'),
             subtitle: const Text('Search, navigation, calls and other actions'),
             onTap: () => _push(const ToolsScreen()),
+          ),
+          ListTile(
+            leading: const Icon(Icons.checklist),
+            title: const Text('Tasks'),
+            subtitle: const Text('The to-do list the assistant can manage'),
+            onTap: () => _push(const TodosScreen()),
           ),
           ListTile(
             leading: const Icon(Icons.format_quote_outlined),

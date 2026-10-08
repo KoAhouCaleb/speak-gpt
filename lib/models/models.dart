@@ -271,6 +271,39 @@ class SavedPrompt {
   );
 }
 
+/// An entry of the to-do list the assistant can read and change.
+class TodoItem {
+  TodoItem({
+    required this.id,
+    required this.title,
+    this.notes = '',
+    this.due,
+    this.done = false,
+  });
+
+  final String id;
+  String title;
+  String notes;
+  DateTime? due;
+  bool done;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'notes': notes,
+    'due': due?.toIso8601String(),
+    'done': done,
+  };
+
+  factory TodoItem.fromJson(Map<String, dynamic> json) => TodoItem(
+    id: '${json['id']}',
+    title: '${json['title'] ?? ''}',
+    notes: '${json['notes'] ?? ''}',
+    due: DateTime.tryParse('${json['due'] ?? ''}'),
+    done: json['done'] == true,
+  );
+}
+
 /// A self-hosted OpenAI-compatible speech server.
 ///
 /// Speech to text: POST {host}/audio/transcriptions (for example Qwen3-ASR or Whisper servers).

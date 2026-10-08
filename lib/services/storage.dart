@@ -315,6 +315,48 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---- To-do list ----------------------------------------------------------
+
+  List<TodoItem> get todos {
+    final raw = _prefs.getString('todos');
+    if (raw == null) return [];
+    try {
+      return (jsonDecode(raw) as List)
+          .map((e) => TodoItem.fromJson(e as Map<String, dynamic>))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _writeTodos(List<TodoItem> items) async {
+    await _prefs.setString(
+      'todos',
+      jsonEncode(items.map((e) => e.toJson()).toList()),
+    );
+    notifyListeners();
+  }
+
+  /// Adds the item, or replaces the one with the same id.
+  Future<void> saveTodo(TodoItem item) async {
+    final all = todos;
+    final i = all.indexWhere((t) => t.id == item.id);
+    if (i >= 0) {
+      all[i] = item;
+    } else {
+      all.add(item);
+    }
+    await _writeTodos(all);
+  }
+
+  Future<void> deleteTodo(String id) async {
+    await _writeTodos(todos.where((t) => t.id != id).toList());
+  }
+
+  Future<void> clearDoneTodos() async {
+    await _writeTodos(todos.where((t) => !t.done).toList());
+  }
+
   // ---- Endpoints -------------------------------------------------------
 
   List<ApiEndpoint> get endpointsRaw {
