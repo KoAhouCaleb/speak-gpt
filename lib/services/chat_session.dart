@@ -39,6 +39,17 @@ class ChatSession extends ChangeNotifier {
   /// Called with the final answer text, used for speech output.
   void Function(String text)? onAnswer;
 
+  /// Whether an answer is read aloud: after a dictated message unless silent mode is on,
+  /// and always in "always speak" mode, which wins over silent mode. Typed messages are only
+  /// answered aloud in "always speak" mode.
+  static bool shouldSpeak({
+    required bool fromVoice,
+    required bool silent,
+    required bool alwaysSpeak,
+  }) => (fromVoice && !silent) || alwaysSpeak;
+
+  bool _lastFromVoice = false;
+
   bool generating = false;
   String? error;
   http.Client? _client;
@@ -82,7 +93,7 @@ class ChatSession extends ChangeNotifier {
         continue;
       }
 
-      final text = _userText(m);
+      final text = '${s.prefix}${_userText(m)}${s.endSeparator}';
       if (m.imagePath.isNotEmpty && File(m.imagePath).existsSync()) {
         final bytes = base64Encode(File(m.imagePath).readAsBytesSync());
         result.add({
@@ -166,6 +177,7 @@ class ChatSession extends ChangeNotifier {
     String text, {
     String imagePath = '',
     String contextText = '',
+    bool fromVoice = false,
   }) async {
     final trimmed = text.trim();
     if ((trimmed.isEmpty && imagePath.isEmpty && contextText.isEmpty) ||
@@ -181,7 +193,11 @@ class ChatSession extends ChangeNotifier {
       ),
     );
 
-    if (imagePath.isEmpty && trimmed.toLowerCase().startsWith('/imagine ')) {
+    _lastFromVoice = fromVoice;
+
+    if (imagePath.isEmpty &&
+        settings.imagineCommand &&
+        trimmed.toLowerCase().startsWith('/imagine ')) {
       await _imagine(trimmed.substring(9).trim());
     } else {
       await _generate();
@@ -195,6 +211,7 @@ class ChatSession extends ChangeNotifier {
       messages.removeLast();
     }
     if (messages.isEmpty) return;
+    _lastFromVoice = false;
     await _generate();
   }
 
@@ -262,8 +279,14 @@ class ChatSession extends ChangeNotifier {
       );
       answer.text = prompt;
     } catch (e) {
-      if (!_stopRequested) error = e.toString();
-      messages.remove(answer);
+      if (_stopRequested) {
+        messages.remove(answer);
+      } else if (storage.showChatErrors) {
+        answer.errorText = e.toString();
+      } else {
+        error = e.toString();
+        messages.remove(answer);
+      }
     } finally {
       client.close();
       _client = null;
@@ -358,7 +381,14 @@ class ChatSession extends ChangeNotifier {
       }
     } catch (e) {
       // Closing the client on purpose (stop button) also surfaces as an exception
-      if (!_stopRequested) error = e.toString();
+      if (!_stopRequested) {
+        // Inside the chat the error is saved with the answer. Otherwise it is only a banner.
+        if (storage.showChatErrors) {
+          answer.errorText = e.toString();
+        } else {
+          error = e.toString();
+        }
+      }
     } finally {
       client.close();
       _client = null;
@@ -367,11 +397,21 @@ class ChatSession extends ChangeNotifier {
           answer.text.isEmpty &&
           answer.reasoning.isEmpty &&
           answer.imagePath.isEmpty &&
-          answer.toolLog.isEmpty;
+          answer.toolLog.isEmpty &&
+          answer.errorText.isEmpty;
       if (empty) messages.remove(answer);
       await storage.saveMessages(chatId, messages);
       await storage.touchChat(chatId);
-      if (!empty && error == null && answer.text.trim().isNotEmpty) {
+      final s = settings;
+      if (!empty &&
+          error == null &&
+          answer.errorText.isEmpty &&
+          answer.text.trim().isNotEmpty &&
+          shouldSpeak(
+            fromVoice: _lastFromVoice,
+            silent: s.silentMode,
+            alwaysSpeak: s.alwaysSpeak,
+          )) {
         onAnswer?.call(answer.text);
       }
       _notify();

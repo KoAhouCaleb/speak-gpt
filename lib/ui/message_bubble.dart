@@ -159,6 +159,27 @@ class MessageBubble extends StatelessWidget {
                     message.text,
                     style: TextStyle(color: foreground),
                   ),
+                if (message.errorText.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 18,
+                          color: scheme.error,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: SelectableText(
+                            message.errorText,
+                            style: TextStyle(color: scheme.error),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
           ),

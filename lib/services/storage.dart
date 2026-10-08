@@ -76,9 +76,39 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool get speakReplies => _prefs.getBool('speak_replies') ?? false;
-  Future<void> setSpeakReplies(bool v) async {
-    await _prefs.setBool('speak_replies', v);
+  /// Send a dictated message as soon as the recognizer finishes.
+  bool get autoSend => _prefs.getBool('auto_send') ?? true;
+  Future<void> setAutoSend(bool v) async {
+    await _prefs.setBool('auto_send', v);
+    notifyListeners();
+  }
+
+  /// Show why an answer failed inside the chat. Off shows a message that disappears.
+  bool get showChatErrors => _prefs.getBool('show_chat_errors') ?? true;
+  Future<void> setShowChatErrors(bool v) async {
+    await _prefs.setBool('show_chat_errors', v);
+    notifyListeners();
+  }
+
+  /// Who reads answers aloud: 'device' (Android text to speech) or 'endpoint' (the
+  /// /audio/speech route of the chat's API endpoint). A configured speech server wins over both.
+  String get ttsEngine => _prefs.getString('tts_engine') ?? 'device';
+  Future<void> setTtsEngine(String v) async {
+    await _prefs.setString('tts_engine', v);
+    notifyListeners();
+  }
+
+  String get ttsEndpointVoice =>
+      _prefs.getString('tts_endpoint_voice') ?? 'alloy';
+  Future<void> setTtsEndpointVoice(String v) async {
+    await _prefs.setString('tts_endpoint_voice', v);
+    notifyListeners();
+  }
+
+  String get ttsEndpointModel =>
+      _prefs.getString('tts_endpoint_model') ?? 'tts-1';
+  Future<void> setTtsEndpointModel(String v) async {
+    await _prefs.setString('tts_endpoint_model', v);
     notifyListeners();
   }
 

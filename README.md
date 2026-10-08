@@ -20,9 +20,11 @@ Ported:
 - Chats: create, rename, pin, delete, share as text; streaming answers with reasoning display (`reasoning_content`, `reasoning`, `reasoning_text`, `thinking` and inline `<think>` blocks); Markdown; edit, copy, read aloud, delete and regenerate.
 - Per-chat and default settings: endpoint, model (loaded from `/models`), system message, temperature, top-p, penalties, seed, max tokens, logit bias sets.
 - API endpoints with keys in secure storage, presets from `assets/ai_sets.json`, prompts library, image library.
-- Vision: attach pictures from the gallery or camera.
+- Vision: attach pictures from the gallery or camera, paste a picture from the clipboard (long press in the text box, "Paste image") or insert one from the keyboard.
+- Share into Grace: text and pictures from the share sheet, and selected text through the "Grace" item of the text selection menu, open the compact assistant with the content ready to send. A share of several pictures uses the first one.
+- Chat conveniences: message prefix and end separator (added to what the model receives, not shown), silent mode and always-speak mode per chat (answers are read aloud after dictated messages by default), `/imagine` on or off, automatic sending of dictated messages, errors kept in the chat (and not sent back to the model) or shown only in a banner.
 - Image generation with `/imagine <description>`.
-- Voice: dictation (speech_to_text) and reading answers aloud (flutter_tts), or your own OpenAI-compatible speech servers (`/audio/transcriptions` and `/audio/speech`, tested against the Qwen3-ASR and Kokoro-FastAPI shapes) under Settings > Speech servers.
+- Voice: dictation (speech_to_text) and reading answers aloud with Android text to speech (flutter_tts) or the `/audio/speech` route of the chat's API endpoint with a choice of voice and model, or your own OpenAI-compatible speech servers (`/audio/transcriptions` and `/audio/speech`, tested against the Qwen3-ASR and Kokoro-FastAPI shapes) under Settings > Speech servers.
 - Self-hosted friendly networking: plain http addresses are allowed, and certificate authorities installed by the user in the Android settings are trusted by every request (Android's network security config plus the same certificates handed to the Dart HTTP client).
 - Tools (function calling), each off, ask-each-time or allowed: date and time, read screen, QR code reading from the captured screenshot (pure Dart, several codes per screen), list and open apps, navigation with stops, music search, call and text (contact lookup), open web page, browser search, internet search through SearXNG, image generation.
 - Digital assistant: see below.

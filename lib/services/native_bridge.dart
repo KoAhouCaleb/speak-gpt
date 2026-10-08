@@ -21,6 +21,19 @@ class AssistContext {
   );
 }
 
+/// Text and a picture shared into Grace from another app.
+class ShareContent {
+  const ShareContent({this.text = '', this.imagePath = ''});
+
+  final String text;
+  final String imagePath;
+
+  factory ShareContent.fromMap(Map<dynamic, dynamic>? map) => ShareContent(
+    text: '${map?['text'] ?? ''}',
+    imagePath: '${map?['imagePath'] ?? ''}',
+  );
+}
+
 class InstalledApp {
   const InstalledApp({required this.label, required this.package});
 
@@ -40,15 +53,52 @@ class NativeBridge {
   static void listen({
     void Function(AssistContext)? onAssist,
     void Function(String chatId)? onOpenChat,
+    void Function(ShareContent)? onShare,
   }) {
     _channel.setMethodCallHandler((call) async {
       if (call.method == 'onAssist') {
         onAssist?.call(AssistContext.fromMap(call.arguments as Map?));
       } else if (call.method == 'onOpenChat') {
         onOpenChat?.call('${call.arguments}');
+      } else if (call.method == 'onShare') {
+        onShare?.call(ShareContent.fromMap(call.arguments as Map?));
       }
       return null;
     });
+  }
+
+  /// Content that started the app through the share sheet, or null.
+  static Future<ShareContent?> takePendingShare() async {
+    try {
+      final map = await _channel.invokeMethod<Map>('takePendingShare');
+      return map == null ? null : ShareContent.fromMap(map);
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  /// Whether the clipboard holds a picture.
+  static Future<bool> clipboardHasImage() async {
+    try {
+      return await _channel.invokeMethod<bool>('clipboardHasImage') ?? false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
+  /// Copies the picture on the clipboard into the cache folder and returns its path.
+  static Future<String?> clipboardImage() async {
+    try {
+      return await _channel.invokeMethod<String>('clipboardImage');
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
   }
 
   /// Chat the overlay handed over to a freshly started main window, or null.

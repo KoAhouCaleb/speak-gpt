@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -11,6 +13,7 @@ import '../theme.dart';
 import '../util.dart';
 import 'dialogs.dart';
 import 'message_bubble.dart';
+import 'message_input.dart';
 
 /// Root of the assistant overlay engine (see assistOverlayMain in main.dart).
 class AssistOverlayApp extends StatelessWidget {
@@ -49,6 +52,15 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   bool _attachText = false;
   bool _attachShot = false;
 
+  // A picture that was pasted, inserted by the keyboard or shared into Grace
+  String _attachedImage = '';
+
+  // Opened from the assistant gesture, as opposed to the share sheet
+  bool _fromAssist = true;
+
+  // The message in the box came from dictation, so the answer may be read aloud
+  bool _voiceInput = false;
+
   ChatInfo? _chat;
   ChatSession? _session;
   bool _listening = false;
@@ -60,7 +72,7 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
     _storage = context.read<Storage>();
     _speech = SpeechService(_storage);
     // Another invocation while the sheet is open starts over
-    NativeBridge.listen(onAssist: _startOver);
+    NativeBridge.listen(onAssist: _startOver, onShare: _startWithShare);
     _loadCapture();
   }
 
@@ -74,9 +86,32 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   }
 
   Future<void> _loadCapture() async {
+    // The activity was started either by the gesture or by the share sheet
+    final share = await NativeBridge.takePendingShare();
+    if (share != null) {
+      if (mounted) _startWithShare(share);
+      return;
+    }
     final captured =
         await NativeBridge.takePendingAssist() ?? const AssistContext();
     if (mounted) _startOver(captured);
+  }
+
+  void _startWithShare(ShareContent share) {
+    if (!mounted) return;
+    _session?.dispose();
+    setState(() {
+      _session = null;
+      _chat = null;
+      _captured = const AssistContext();
+      _fromAssist = false;
+      _attachText = false;
+      _attachShot = false;
+      _attachedImage = share.imagePath;
+      _voiceInput = false;
+    });
+    _input.text = share.text;
+    _input.selection = TextSelection.collapsed(offset: _input.text.length);
   }
 
   void _startOver(AssistContext captured) {
@@ -86,6 +121,9 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       _session = null;
       _chat = null;
       _captured = captured;
+      _fromAssist = true;
+      _attachedImage = '';
+      _voiceInput = false;
       _attachText =
           _storage.autoAttachScreen && captured.text.trim().isNotEmpty;
       _attachShot =
@@ -105,11 +143,15 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
     }
   }
 
-  Future<void> _send() async {
+  Future<void> _send({bool fromVoice = false}) async {
     if (_listening) await _stopListening();
+    final dictated = fromVoice || _voiceInput;
+    _voiceInput = false;
     final text = _input.text;
     final contextText = _attachText ? _captured.text : '';
-    var image = _attachShot ? _captured.screenshotPath : '';
+    var image = _attachedImage.isNotEmpty
+        ? _attachedImage
+        : (_attachShot ? _captured.screenshotPath : '');
     if (text.trim().isEmpty && image.isEmpty && contextText.isEmpty) return;
 
     // The capture lives in the cache folder, keep a copy with the chat
@@ -131,11 +173,8 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
         ..addListener(_onChange)
         ..confirmTool = ((tool, args) async =>
             mounted ? confirmToolDialog(context, tool, args) : false)
-        ..onAnswer = (answer) {
-          if (_storage.speakReplies) {
-            _speak(answer);
-          }
-        };
+        // The session decides whether this answer is read aloud (silent / always speak modes)
+        ..onAnswer = _speak;
     }
 
     _input.clear();
@@ -143,8 +182,14 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       // The screen belongs to the first message only
       _attachText = false;
       _attachShot = false;
+      _attachedImage = '';
     });
-    await _session!.send(text, imagePath: image, contextText: contextText);
+    await _session!.send(
+      text,
+      imagePath: image,
+      contextText: contextText,
+      fromVoice: dictated,
+    );
   }
 
   Future<void> _toggleListening() async {
@@ -162,6 +207,10 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
           text: value,
           selection: TextSelection.collapsed(offset: value.length),
         );
+        if (text.trim().isNotEmpty) _voiceInput = true;
+        if (isFinal && text.trim().isNotEmpty && _storage.autoSend) {
+          _send(fromVoice: true);
+        }
       },
       onError: (_) {
         if (mounted) setState(() => _listening = false);
@@ -185,7 +234,14 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   }
 
   Future<void> _speak(String text) async {
-    final error = await _speech.speak(text, locale: _storage.speechLocale);
+    final error = await _speech.speak(
+      text,
+      locale: _storage.speechLocale,
+      endpoint: _storage.endpointById(
+        _session?.settings.endpointId ??
+            _storage.defaultChatSettings.endpointId,
+      ),
+    );
     if (error != null && mounted) {
       ScaffoldMessenger.of(
         context,
@@ -240,7 +296,10 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       _header(context, assistantName),
-                      if (messages.isEmpty && screenMissing && _session == null)
+                      if (messages.isEmpty &&
+                          screenMissing &&
+                          _fromAssist &&
+                          _session == null)
                         _hint(context),
                       if (messages.isNotEmpty)
                         Flexible(
@@ -373,6 +432,22 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
           onSelected: (v) => setState(() => _attachShot = v),
         ),
     ];
+    if (_attachedImage.isNotEmpty) {
+      chips.add(
+        InputChip(
+          avatar: ClipOval(
+            child: Image.file(
+              File(_attachedImage),
+              width: 24,
+              height: 24,
+              fit: BoxFit.cover,
+            ),
+          ),
+          label: const Text('Picture'),
+          onDeleted: () => setState(() => _attachedImage = ''),
+        ),
+      );
+    }
     if (chips.isEmpty) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -390,23 +465,13 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           Expanded(
-            child: TextField(
+            child: MessageInput(
               controller: _input,
               autofocus: true,
-              minLines: 1,
               maxLines: 4,
-              textCapitalization: TextCapitalization.sentences,
-              decoration: InputDecoration(
-                hintText: 'Ask about this screen',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 10,
-                ),
-              ),
-              onSubmitted: (_) => _send(),
+              hint: _fromAssist ? 'Ask about this screen' : 'Ask Grace',
+              onImage: (path) => setState(() => _attachedImage = path),
+              onSubmitted: _send,
             ),
           ),
           IconButton(

@@ -26,6 +26,12 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # Caches the Gradle home (downloaded dependencies, wrapper, build cache) between runs.
+      # Caches are only written on the default branch unless writing is enabled for others.
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
+
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: 3.35.0

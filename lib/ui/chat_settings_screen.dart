@@ -24,6 +24,8 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
   late final TextEditingController _name;
   late final TextEditingController _seed;
   late final TextEditingController _maxTokens;
+  late final TextEditingController _prefix;
+  late final TextEditingController _endSeparator;
   bool _loadingModels = false;
 
   @override
@@ -38,12 +40,22 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
     _name = TextEditingController(text: _s.assistantName);
     _seed = TextEditingController(text: _s.seed);
     _maxTokens = TextEditingController(text: '${_s.maxTokens}');
+    _prefix = TextEditingController(text: _s.prefix);
+    _endSeparator = TextEditingController(text: _s.endSeparator);
   }
 
   @override
   void dispose() {
     _save();
-    for (final c in [_model, _system, _name, _seed, _maxTokens]) {
+    for (final c in [
+      _model,
+      _system,
+      _name,
+      _seed,
+      _maxTokens,
+      _prefix,
+      _endSeparator,
+    ]) {
       c.dispose();
     }
     super.dispose();
@@ -55,7 +67,10 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
       ..systemMessage = _system.text
       ..assistantName = _name.text.trim().isEmpty ? 'Grace' : _name.text.trim()
       ..seed = _seed.text.trim()
-      ..maxTokens = int.tryParse(_maxTokens.text.trim()) ?? _s.maxTokens;
+      ..maxTokens = int.tryParse(_maxTokens.text.trim()) ?? _s.maxTokens
+      // Not trimmed: a trailing space or newline is often the point of a separator
+      ..prefix = _prefix.text
+      ..endSeparator = _endSeparator.text;
     if (widget.chat == null) {
       _storage.saveDefaultChatSettings(_s);
     } else {
@@ -172,6 +187,57 @@ class _ChatSettingsScreenState extends State<ChatSettingsScreen> {
               alignLabelWithHint: true,
               border: OutlineInputBorder(),
             ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _prefix,
+            minLines: 1,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Message prefix',
+              helperText:
+                  'Put before every message you send. Not shown in the chat.',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _endSeparator,
+            minLines: 1,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'End separator',
+              helperText:
+                  'Put after every message you send. Not shown in the chat.',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Silent mode'),
+            subtitle: const Text(
+              'Do not read answers aloud after dictated messages',
+            ),
+            value: _s.silentMode,
+            onChanged: (v) => setState(() => _s.silentMode = v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Always speak'),
+            subtitle: const Text(
+              'Read every answer aloud, also after typed messages. Wins over silent mode.',
+            ),
+            value: _s.alwaysSpeak,
+            onChanged: (v) => setState(() => _s.alwaysSpeak = v),
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('/imagine command'),
+            subtitle: const Text(
+              'A message that starts with /imagine generates an image',
+            ),
+            value: _s.imagineCommand,
+            onChanged: (v) => setState(() => _s.imagineCommand = v),
           ),
           const SizedBox(height: 24),
           _slider(

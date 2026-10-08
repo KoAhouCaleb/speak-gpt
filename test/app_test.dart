@@ -386,7 +386,8 @@ void main() {
 
       String? spoken;
       session.onAnswer = (t) => spoken = t;
-      await session.send('hi');
+      // A dictated message, so the answer is read aloud
+      await session.send('hi', fromVoice: true);
 
       expect(session.error, isNull);
       expect(session.messages.last.text, 'Hello');
@@ -482,7 +483,9 @@ void main() {
         }),
       );
       await session.send('hi');
-      expect(session.error, contains('401'));
+      // By default the error is kept inside the chat
+      expect(session.error, isNull);
+      expect(session.messages.last.errorText, contains('401'));
       expect(session.generating, isFalse);
       session.dispose();
     });

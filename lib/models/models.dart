@@ -60,6 +60,7 @@ class ChatMessage {
     this.imagePath = '',
     this.toolLog = '',
     this.contextText = '',
+    this.errorText = '',
   });
 
   String text;
@@ -75,6 +76,9 @@ class ChatMessage {
   /// Text captured from the user's screen and sent along with this message.
   String contextText;
 
+  /// Why the answer failed. Shown in the chat but never sent to the model.
+  String errorText;
+
   Map<String, dynamic> toJson() => {
     'message': text,
     'isBot': isBot,
@@ -82,6 +86,7 @@ class ChatMessage {
     if (imagePath.isNotEmpty) 'image': imagePath,
     if (toolLog.isNotEmpty) 'toolLog': toolLog,
     if (contextText.isNotEmpty) 'context': contextText,
+    if (errorText.isNotEmpty) 'error': errorText,
   };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
@@ -91,6 +96,7 @@ class ChatMessage {
     imagePath: '${json['image'] ?? ''}',
     toolLog: '${json['toolLog'] ?? ''}',
     contextText: '${json['context'] ?? ''}',
+    errorText: '${json['error'] ?? ''}',
   );
 }
 
@@ -109,6 +115,11 @@ class ChatSettings {
     this.assistantName = 'Grace',
     this.logitBiasSetId = '',
     this.functionCalling = false,
+    this.prefix = '',
+    this.endSeparator = '',
+    this.silentMode = false,
+    this.alwaysSpeak = false,
+    this.imagineCommand = true,
   });
 
   String endpointId;
@@ -124,6 +135,19 @@ class ChatSettings {
   String logitBiasSetId;
   bool functionCalling;
 
+  /// Text put before and after every message sent to the model (not shown in the chat).
+  String prefix;
+  String endSeparator;
+
+  /// Never read answers aloud after dictated messages.
+  bool silentMode;
+
+  /// Read every answer aloud, also after typed messages. Wins over [silentMode].
+  bool alwaysSpeak;
+
+  /// Whether a message starting with /imagine generates an image.
+  bool imagineCommand;
+
   Map<String, dynamic> toJson() => {
     'endpointId': endpointId,
     'model': model,
@@ -137,6 +161,11 @@ class ChatSettings {
     'assistantName': assistantName,
     'logitBiasSetId': logitBiasSetId,
     'functionCalling': functionCalling,
+    'prefix': prefix,
+    'endSeparator': endSeparator,
+    'silentMode': silentMode,
+    'alwaysSpeak': alwaysSpeak,
+    'imagineCommand': imagineCommand,
   };
 
   factory ChatSettings.fromJson(Map<String, dynamic> json) {
@@ -156,6 +185,11 @@ class ChatSettings {
       assistantName: json['assistantName'] as String? ?? d.assistantName,
       logitBiasSetId: json['logitBiasSetId'] as String? ?? d.logitBiasSetId,
       functionCalling: json['functionCalling'] as bool? ?? d.functionCalling,
+      prefix: json['prefix'] as String? ?? d.prefix,
+      endSeparator: json['endSeparator'] as String? ?? d.endSeparator,
+      silentMode: json['silentMode'] as bool? ?? d.silentMode,
+      alwaysSpeak: json['alwaysSpeak'] as bool? ?? d.alwaysSpeak,
+      imagineCommand: json['imagineCommand'] as bool? ?? d.imagineCommand,
     );
   }
 }

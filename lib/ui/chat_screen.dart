@@ -16,6 +16,7 @@ import '../util.dart';
 import 'chat_settings_screen.dart';
 import 'dialogs.dart';
 import 'message_bubble.dart';
+import 'message_input.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.chat, this.assist});
@@ -40,6 +41,9 @@ class _ChatScreenState extends State<ChatScreen> {
   bool _attachScreenText = false;
   bool _attachScreenshot = false;
   bool _listening = false;
+
+  // The message in the box came from dictation, so the answer may be read aloud
+  bool _voiceInput = false;
   String _dictationBase = '';
 
   @override
@@ -50,11 +54,8 @@ class _ChatScreenState extends State<ChatScreen> {
     _session = ChatSession(_storage, widget.chat.id)
       ..addListener(_onChange)
       ..confirmTool = _confirmTool
-      ..onAnswer = (text) {
-        if (_storage.speakReplies) {
-          _speak(text);
-        }
-      };
+      // The session decides whether this answer is read aloud (silent / always speak modes)
+      ..onAnswer = _speak;
 
     final assist = widget.assist;
     if (assist != null && _storage.autoAttachScreen) {
@@ -93,8 +94,10 @@ class _ChatScreenState extends State<ChatScreen> {
     return confirmToolDialog(context, tool, args);
   }
 
-  Future<void> _send() async {
+  Future<void> _send({bool fromVoice = false}) async {
     if (_listening) await _stopListening();
+    final dictated = fromVoice || _voiceInput;
+    _voiceInput = false;
     final text = _input.text;
     final assist = widget.assist;
 
@@ -122,7 +125,12 @@ class _ChatScreenState extends State<ChatScreen> {
       _attachScreenText = false;
       _attachScreenshot = false;
     });
-    await _session.send(text, imagePath: image, contextText: contextText);
+    await _session.send(
+      text,
+      imagePath: image,
+      contextText: contextText,
+      fromVoice: dictated,
+    );
   }
 
   Future<void> _pickImage(ImageSource source) async {
@@ -189,6 +197,10 @@ class _ChatScreenState extends State<ChatScreen> {
             offset: '$_dictationBase$text'.length,
           ),
         );
+        if (text.trim().isNotEmpty) _voiceInput = true;
+        if (isFinal && text.trim().isNotEmpty && _storage.autoSend) {
+          _send(fromVoice: true);
+        }
       },
       onError: (e) {
         if (mounted) setState(() => _listening = false);
@@ -213,7 +225,11 @@ class _ChatScreenState extends State<ChatScreen> {
   }
 
   Future<void> _speak(String text) async {
-    final error = await _speech.speak(text, locale: _storage.speechLocale);
+    final error = await _speech.speak(
+      text,
+      locale: _storage.speechLocale,
+      endpoint: _storage.endpointById(_session.settings.endpointId),
+    );
     if (error != null && mounted) {
       ScaffoldMessenger.of(
         context,
@@ -374,21 +390,9 @@ class _ChatScreenState extends State<ChatScreen> {
                     icon: const Icon(Icons.add_photo_alternate_outlined),
                   ),
                   Expanded(
-                    child: TextField(
+                    child: MessageInput(
                       controller: _input,
-                      minLines: 1,
-                      maxLines: 6,
-                      textCapitalization: TextCapitalization.sentences,
-                      decoration: InputDecoration(
-                        hintText: 'Message',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                      ),
+                      onImage: (path) => setState(() => _attachedImage = path),
                     ),
                   ),
                   const SizedBox(width: 4),

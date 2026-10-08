@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/models.dart';
 import '../services/native_bridge.dart';
+import '../services/speech_server_client.dart';
 import '../services/storage.dart';
 import 'chat_settings_screen.dart';
 import 'endpoints_screen.dart';
@@ -23,6 +25,9 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _isAssistant = false;
   late final TextEditingController _locale;
   late final TextEditingController _imageModel;
+  late final TextEditingController _ttsVoice;
+  late final TextEditingController _ttsModel;
+  bool _loadingVoices = false;
 
   @override
   void initState() {
@@ -30,6 +35,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     final storage = context.read<Storage>();
     _locale = TextEditingController(text: storage.speechLocale);
     _imageModel = TextEditingController(text: storage.imageModel);
+    _ttsVoice = TextEditingController(text: storage.ttsEndpointVoice);
+    _ttsModel = TextEditingController(text: storage.ttsEndpointModel);
     WidgetsBinding.instance.addObserver(this);
     _refreshAssistant();
   }
@@ -39,6 +46,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     WidgetsBinding.instance.removeObserver(this);
     _locale.dispose();
     _imageModel.dispose();
+    _ttsVoice.dispose();
+    _ttsModel.dispose();
     super.dispose();
   }
 
@@ -51,6 +60,79 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<void> _refreshAssistant() async {
     final value = await NativeBridge.isDefaultAssistant();
     if (mounted) setState(() => _isAssistant = value);
+  }
+
+  /// Voices OpenAI offers. Other compatible servers name theirs differently.
+  static const _openAiVoices = [
+    'alloy',
+    'ash',
+    'ballad',
+    'coral',
+    'echo',
+    'fable',
+    'nova',
+    'onyx',
+    'sage',
+    'shimmer',
+    'verse',
+  ];
+
+  /// Offers the voices of the default endpoint when it lists them (GET /audio/voices),
+  /// and the OpenAI voices otherwise.
+  Future<void> _chooseVoice() async {
+    final storage = context.read<Storage>();
+    final endpoint = storage.endpointById(
+      storage.defaultChatSettings.endpointId,
+    );
+    var voices = _openAiVoices;
+    var note =
+        'OpenAI voices. Type the name of a different voice into the field.';
+
+    if (endpoint != null && endpoint.apiKey.isNotEmpty) {
+      setState(() => _loadingVoices = true);
+      try {
+        final listed = await SpeechServerClient.listVoices(
+          SpeechServerConfig(host: endpoint.host, apiKey: endpoint.apiKey),
+        );
+        if (listed.isNotEmpty) {
+          voices = listed;
+          note = 'Voices reported by ${endpoint.label}.';
+        }
+      } catch (_) {
+        // Most servers have no voice list, the OpenAI voices are the fallback
+      } finally {
+        if (mounted) setState(() => _loadingVoices = false);
+      }
+    }
+
+    if (!mounted) return;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.6,
+        builder: (ctx, controller) => ListView.builder(
+          controller: controller,
+          itemCount: voices.length + 1,
+          itemBuilder: (ctx, i) => i == 0
+              ? Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Text(note),
+                )
+              : ListTile(
+                  title: Text(voices[i - 1]),
+                  selected: voices[i - 1] == _ttsVoice.text,
+                  onTap: () => Navigator.pop(ctx, voices[i - 1]),
+                ),
+        ),
+      ),
+    );
+    if (picked != null) {
+      _ttsVoice.text = picked;
+      await storage.setTtsEndpointVoice(picked);
+    }
   }
 
   void _push(Widget screen) => Navigator.of(
@@ -107,6 +189,15 @@ class _SettingsScreenState extends State<SettingsScreen>
             value: storage.showReasoning,
             onChanged: storage.setShowReasoning,
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.error_outline),
+            title: const Text('Show errors in the chat'),
+            subtitle: const Text(
+              'Keep the reason an answer failed as part of the chat. When off, errors appear in a banner and are not saved.',
+            ),
+            value: storage.showChatErrors,
+            onChanged: storage.setShowChatErrors,
+          ),
           _header('Assistant'),
           ListTile(
             leading: Icon(
@@ -152,12 +243,87 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
             onTap: () => _push(const SpeechServersScreen()),
           ),
-          SwitchListTile(
-            secondary: const Icon(Icons.volume_up_outlined),
-            title: const Text('Read answers aloud'),
-            value: storage.speakReplies,
-            onChanged: storage.setSpeakReplies,
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
+            child: Text(
+              'Answers are read aloud after messages you dictate. In the settings of a chat you can turn on Silent mode '
+              'to stop that, or Always speak to also read answers to typed messages.',
+            ),
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.send_outlined),
+            title: const Text('Send dictated messages automatically'),
+            subtitle: const Text('Send as soon as speech recognition finishes'),
+            value: storage.autoSend,
+            onChanged: storage.setAutoSend,
+          ),
+          ListTile(
+            leading: const Icon(Icons.record_voice_over_outlined),
+            title: const Text('Speech engine'),
+            subtitle: const Text(
+              'A speech server (above), when turned on, is used instead of either choice.',
+            ),
+            trailing: DropdownButton<String>(
+              value: storage.ttsEngine,
+              underline: const SizedBox.shrink(),
+              items: const [
+                DropdownMenuItem(value: 'device', child: Text('This device')),
+                DropdownMenuItem(
+                  value: 'endpoint',
+                  child: Text('API endpoint'),
+                ),
+              ],
+              onChanged: (v) => storage.setTtsEngine(v ?? 'device'),
+            ),
+          ),
+          if (storage.ttsEngine == 'endpoint') ...[
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: TextField(
+                controller: _ttsModel,
+                decoration: const InputDecoration(
+                  labelText: 'Speech model',
+                  helperText: 'For example tts-1, tts-1-hd or gpt-4o-mini-tts',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (v) {
+                  if (v.trim().isNotEmpty) {
+                    storage.setTtsEndpointModel(v.trim());
+                  }
+                },
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              child: TextField(
+                controller: _ttsVoice,
+                decoration: InputDecoration(
+                  labelText: 'Voice',
+                  helperText: 'Uses the API endpoint of the chat',
+                  border: const OutlineInputBorder(),
+                  suffixIcon: _loadingVoices
+                      ? const Padding(
+                          padding: EdgeInsets.all(12),
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
+                      : IconButton(
+                          tooltip: 'Choose a voice',
+                          icon: const Icon(Icons.list),
+                          onPressed: _chooseVoice,
+                        ),
+                ),
+                onChanged: (v) {
+                  if (v.trim().isNotEmpty) {
+                    storage.setTtsEndpointVoice(v.trim());
+                  }
+                },
+              ),
+            ),
+          ],
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: TextField(

@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 
+import '../models/models.dart';
 import '../util.dart';
 import 'speech_server_client.dart';
 import 'storage.dart';
@@ -31,6 +32,16 @@ class SpeechService {
   void Function(String text, bool isFinal)? _onResult;
   void Function(String error)? _onError;
   void Function()? _onDone;
+
+  /// Speech settings that read answers aloud through an OpenAI-compatible endpoint.
+  SpeechServerConfig endpointSpeechConfig(ApiEndpoint endpoint) =>
+      SpeechServerConfig(
+        enabled: true,
+        host: endpoint.host,
+        apiKey: endpoint.apiKey,
+        model: _storage.ttsEndpointModel,
+        voice: _storage.ttsEndpointVoice,
+      );
 
   bool get isListening => _recording || _stt.isListening;
 
@@ -113,7 +124,14 @@ class SpeechService {
   }
 
   /// Reads text aloud. Returns an error message, or null if speech started.
-  Future<String?> speak(String markdown, {String locale = ''}) async {
+  ///
+  /// Order of engines: a configured speech server, then the chat's API endpoint when that is
+  /// the chosen engine, then Android text to speech. [endpoint] is the chat's endpoint.
+  Future<String?> speak(
+    String markdown, {
+    String locale = '',
+    ApiEndpoint? endpoint,
+  }) async {
     final text = plainTextForSpeech(markdown);
     if (text.isEmpty) return null;
 
@@ -122,6 +140,20 @@ class SpeechService {
       if (server.active) {
         await stopSpeaking();
         final bytes = await SpeechServerClient.speak(server, text);
+        final player = _player ??= AudioPlayer();
+        await player.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
+        return null;
+      }
+
+      if (_storage.ttsEngine == 'endpoint') {
+        if (endpoint == null || endpoint.apiKey.isEmpty) {
+          return 'The chat has no API key for speech. Add one under Settings > API endpoints, or switch the speech engine to the device.';
+        }
+        await stopSpeaking();
+        final bytes = await SpeechServerClient.speak(
+          endpointSpeechConfig(endpoint),
+          text,
+        );
         final player = _player ??= AudioPlayer();
         await player.play(BytesSource(bytes, mimeType: 'audio/mpeg'));
         return null;

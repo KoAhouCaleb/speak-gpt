@@ -4,11 +4,16 @@ import android.Manifest
 import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Intent
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.ContactsContract
 import android.provider.Settings
 import android.util.Base64
+import android.webkit.MimeTypeMap
+import java.io.File
 import java.security.KeyStore
 import com.grace.assistant.assist.AssistStore
 import io.flutter.embedding.android.FlutterActivity
@@ -36,6 +41,7 @@ open class GraceFlutterActivity : FlutterActivity() {
     // Launches that started the activity before Flutter could receive them
     private var pendingAssist = false
     private var pendingChatId: String? = null
+    private var pendingShare: Map<String, String>? = null
 
     private var pendingContactName: String? = null
     private var pendingContactResult: MethodChannel.Result? = null
@@ -49,6 +55,7 @@ open class GraceFlutterActivity : FlutterActivity() {
                 pendingAssist = true
             }
             intent?.action == ACTION_OPEN_CHAT -> pendingChatId = intent?.getStringExtra(EXTRA_CHAT_ID)
+            else -> pendingShare = intent?.let { extractShare(it) }
         }
     }
 
@@ -73,6 +80,7 @@ open class GraceFlutterActivity : FlutterActivity() {
                 channel?.invokeMethod("onAssist", capture?.toMap() ?: emptyMap<String, Any>())
             }
             intent.action == ACTION_OPEN_CHAT -> intent.getStringExtra(EXTRA_CHAT_ID)?.let { channel?.invokeMethod("onOpenChat", it) }
+            else -> extractShare(intent)?.let { channel?.invokeMethod("onShare", it) }
         }
     }
 
@@ -100,6 +108,12 @@ open class GraceFlutterActivity : FlutterActivity() {
                 openAssistantSettings()
                 result.success(null)
             }
+            "takePendingShare" -> {
+                result.success(pendingShare)
+                pendingShare = null
+            }
+            "clipboardHasImage" -> result.success(clipboardImageUri() != null)
+            "clipboardImage" -> result.success(copyClipboardImage())
             "userCertificates" -> result.success(userCertificates())
             "listApps" -> result.success(listApps())
             "openApp" -> result.success(openApp(call.argument<String>("name") ?: ""))
@@ -159,6 +173,85 @@ open class GraceFlutterActivity : FlutterActivity() {
                 // Try the next screen
             }
         }
+    }
+
+    /**
+     * Text and a picture handed over through the share sheet or the "process text" menu.
+     * The picture is copied into the cache folder because the sender's permission to read it
+     * ends with the intent. Only the first picture of a multi share is used.
+     */
+    private fun extractShare(intent: Intent): Map<String, String>? {
+        val text = when (intent.action) {
+            Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE -> intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+            Intent.ACTION_PROCESS_TEXT -> intent.getCharSequenceExtra(Intent.EXTRA_PROCESS_TEXT)?.toString()
+            else -> return null
+        }
+
+        var imagePath = ""
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val uri = sharedStreams(intent).firstOrNull()
+            if (uri != null) imagePath = copyImage(uri, intent.type)
+        }
+
+        if (text.isNullOrBlank() && imagePath.isEmpty()) return null
+        return mapOf("text" to (text ?: ""), "imagePath" to imagePath)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun sharedStreams(intent: Intent): List<Uri> {
+        return if (intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val list = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            list?.filterNotNull() ?: emptyList()
+        } else {
+            val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+            } else {
+                intent.getParcelableExtra<Uri>(Intent.EXTRA_STREAM)
+            }
+            listOfNotNull(uri)
+        }
+    }
+
+    /** Copies an image the user shared or pasted into the cache folder. Returns "" if it is not an image. */
+    private fun copyImage(uri: Uri, declaredType: String?): String {
+        return try {
+            val type = contentResolver.getType(uri) ?: declaredType ?: return ""
+            if (!type.startsWith("image/")) return ""
+
+            val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(type) ?: "jpg"
+            val dir = File(cacheDir, "share").apply { mkdirs() }
+            val target = File(dir, "img_${System.currentTimeMillis()}.$extension")
+
+            contentResolver.openInputStream(uri)?.use { input ->
+                target.outputStream().use { output -> input.copyTo(output) }
+            } ?: return ""
+
+            target.absolutePath
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    /** The first image on the clipboard, or null if the clipboard holds anything else. */
+    private fun clipboardImageUri(): Uri? {
+        return try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = clipboard.primaryClip ?: return null
+            val description = clip.description
+            if (clip.itemCount == 0 || !description.hasMimeType("image/*")) return null
+            clip.getItemAt(0).uri
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun copyClipboardImage(): String? {
+        val uri = clipboardImageUri() ?: return null
+        return copyImage(uri, null).ifEmpty { null }
     }
 
     /**
