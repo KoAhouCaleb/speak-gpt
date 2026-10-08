@@ -3,6 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
 import 'image_client.dart';
 import 'native_bridge.dart';
+import 'qr_reader.dart';
 import 'searxng_client.dart';
 import 'storage.dart';
 
@@ -167,6 +168,32 @@ final List<AssistantTool> allTools = [
         );
       }
       return ToolResult(captured.text);
+    },
+  ),
+  AssistantTool(
+    name: 'read_qr_code',
+    description:
+        'Find QR codes on the screen the user was looking at when they opened the assistant and return the text they contain.',
+    properties: const {},
+    required: const [],
+    defaultMode: ToolMode.confirm,
+    describeCall: (_) => 'Look for QR codes on the captured screen',
+    run: (args, ctx) async {
+      final captured = await NativeBridge.lastAssist();
+      if (captured == null || captured.screenshotPath.isEmpty) {
+        return const ToolResult(
+          'No screenshot is available. The user must open the assistant from the screen with the QR code, '
+          'and allow the assistant to use the screenshot in the system settings.',
+        );
+      }
+      final codes = await QrReader.readFile(captured.screenshotPath);
+      if (codes.isEmpty) {
+        return const ToolResult('No QR code was found on the screen.');
+      }
+      return ToolResult(
+        [for (var i = 0; i < codes.length; i++) 'QR code ${i + 1}: ${codes[i]}']
+            .join('\n'),
+      );
     },
   ),
   AssistantTool(

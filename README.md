@@ -23,11 +23,11 @@ Ported:
 - Vision: attach pictures from the gallery or camera.
 - Image generation with `/imagine <description>`.
 - Voice: dictation (speech_to_text) and reading answers aloud (flutter_tts).
-- Tools (function calling), each off, ask-each-time or allowed: date and time, read screen, list and open apps, navigation with stops, music search, call and text (contact lookup), open web page, browser search, internet search through SearXNG, image generation.
+- Tools (function calling), each off, ask-each-time or allowed: date and time, read screen, QR code reading from the captured screenshot (pure Dart, several codes per screen), list and open apps, navigation with stops, music search, call and text (contact lookup), open web page, browser search, internet search through SearXNG, image generation.
 - Digital assistant: see below.
 - Light, dark and AMOLED themes.
 
-Not ported: the old floating assistant overlay, QR code reading, ads and support flows, and the translated strings (the UI is English only for now).
+Not ported: the old floating assistant overlay and the translated strings (the UI is English only for now).
 
 ### Assistant (screen context without accessibility)
 
