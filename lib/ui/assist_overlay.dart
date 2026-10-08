@@ -28,6 +28,7 @@ class AssistOverlayApp extends StatelessWidget {
       theme: lightTheme(),
       darkTheme: darkTheme(amoled: storage.amoled),
       themeMode: themeModeOf(storage),
+      builder: linearTextScale,
       home: const AssistOverlayScreen(),
     );
   }
