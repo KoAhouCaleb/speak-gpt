@@ -785,13 +785,25 @@ final List<AssistantTool> allTools = [
         id: _optArg(args, 'id'),
         title: _optArg(args, 'title'),
       );
+      final done = args['done'] is bool ? args['done'] as bool : null;
+      final changesAnythingElse = [
+        'new_title',
+        'notes',
+        'due',
+        'project',
+      ].any((k) => _optArg(args, k) != null);
+      if (done != null && done == target.isDone && !changesAnythingElse) {
+        return ToolResult(
+          'No change: the task "${target.title}" [${target.id}] is already ${done ? 'done' : 'not done'}.',
+        );
+      }
       final clearDue = _optArg(args, 'due')?.toLowerCase() == 'none';
       final due = clearDue ? null : _dueArg(args);
       final updated = await tasks.update(
         target,
         title: _optArg(args, 'new_title'),
         notes: _optArg(args, 'notes'),
-        isDone: args['done'] is bool ? args['done'] as bool : null,
+        isDone: done,
         project: _optArg(args, 'project'),
         dueDay: due?.day,
         dueWithTime: due?.time,

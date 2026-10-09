@@ -272,7 +272,7 @@ void main() {
       expect(added.text, contains('Pay rent'));
       expect(added.text, contains('(due 2026-10-10T09:30)'));
 
-      await run('update_task', {'title': 'milk', 'done': true});
+      await run('update_task', {'title': 'Buy milk', 'done': true});
       expect((await run('list_tasks', {})).text, isNot(contains('Buy milk')));
       expect(
         (await run('list_tasks', {'include_done': true})).text,
@@ -284,17 +284,35 @@ void main() {
     });
 
     test('the due date can be changed and removed', () async {
-      await run('update_task', {'title': 'report', 'due': '2026-11-01T09:00'});
+      await run('update_task', {
+        'title': 'Write report',
+        'due': '2026-11-01T09:00',
+      });
       expect(
         (await run('list_tasks', {'search': 'report'})).text,
         contains('(due 2026-11-01T09:00)'),
       );
-      await run('update_task', {'title': 'report', 'due': 'none'});
+      await run('update_task', {'title': 'Write report', 'due': 'none'});
       expect(
         (await run('list_tasks', {'search': 'report'})).text,
         isNot(contains('due')),
       );
     });
+
+    test(
+      'completing with a wrong name fails, and completing twice says so',
+      () async {
+        await expectLater(
+          run('update_task', {'title': 'milk', 'done': true}),
+          throwsA(predicate((e) => e.toString().contains('[t1] Buy milk'))),
+        );
+        expect((await run('list_tasks', {})).text, contains('Buy milk'));
+
+        await run('update_task', {'title': 'Buy milk', 'done': true});
+        final again = await run('update_task', {'id': 't1', 'done': true});
+        expect(again.text, contains('already done'));
+      },
+    );
 
     test('bad input is explained', () async {
       expect(
@@ -303,7 +321,7 @@ void main() {
       );
       expect(
         () => run('update_task', {'title': 'nothing here'}),
-        throwsA(predicate((e) => e.toString().contains('No task matches'))),
+        throwsA(predicate((e) => e.toString().contains('No task is titled'))),
       );
     });
 

@@ -309,7 +309,7 @@ void main() {
 
     test('completing sends a patch with only the changed fields', () async {
       final tasks = service();
-      final milk = await tasks.find(title: 'milk');
+      final milk = await tasks.find(title: 'Buy milk');
       await tasks.update(milk, isDone: true);
 
       final op = (await server.uploadedOps()).single;
@@ -329,10 +329,13 @@ void main() {
 
     test('clearing the due date lists the cleared fields', () async {
       final tasks = service();
-      await tasks.update(await tasks.find(title: 'report'), clearDue: true);
+      await tasks.update(
+        await tasks.find(title: 'Write report'),
+        clearDue: true,
+      );
       final payload = (await server.uploadedOps()).single['payload'] as Map;
       expect(payload['clearedFields'], containsAll(['dueDay', 'dueWithTime']));
-      expect((await tasks.find(title: 'report')).due, isNull);
+      expect((await tasks.find(title: 'Write report')).due, isNull);
     });
 
     test('each write raises the own counter', () async {
@@ -346,7 +349,7 @@ void main() {
 
     test('deleting sends a delete operation for the task', () async {
       final tasks = service();
-      await tasks.delete(await tasks.find(title: 'milk'));
+      await tasks.delete(await tasks.find(title: 'Buy milk'));
       final op = (await server.uploadedOps()).single;
       expect(op['opType'], 'DEL');
       expect(op['actionType'], '[Task Shared] deleteTasks');
@@ -355,17 +358,62 @@ void main() {
       expect(await tasks.list(), hasLength(1));
     });
 
-    test('a task is found by id, exact title or part of it', () async {
+    test('a task is found by id or by its exact title only', () async {
       final tasks = service();
       expect((await tasks.find(id: 't2')).title, 'Write report');
       expect((await tasks.find(title: 'buy milk')).id, 't1');
-      expect((await tasks.find(title: 'rep')).id, 't2');
-      expect(
-        () => tasks.find(title: 'nothing'),
-        throwsA(isA<SuperSyncException>()),
-      );
-      expect(() => tasks.find(title: 'i'), throwsA(isA<SuperSyncException>()));
+      expect((await tasks.find(title: ' Buy Milk ')).id, 't1');
+      expect((await tasks.find(id: 'nope', title: 'Buy milk')).id, 't1');
     });
+
+    test(
+      'a title that only resembles a task is refused with suggestions',
+      () async {
+        final tasks = service();
+        await expectLater(
+          tasks.find(title: 'report'),
+          throwsA(
+            predicate(
+              (e) =>
+                  e.toString().contains('No task is titled "report"') &&
+                  e.toString().contains('[t2] Write report'),
+            ),
+          ),
+        );
+        await expectLater(
+          tasks.find(title: 'milk'),
+          throwsA(predicate((e) => e.toString().contains('[t1] Buy milk'))),
+        );
+        await expectLater(
+          tasks.find(title: 'nothing at all'),
+          throwsA(predicate((e) => e.toString().contains('list_tasks'))),
+        );
+        await expectLater(
+          tasks.find(id: 'made-up-id'),
+          throwsA(
+            predicate((e) => e.toString().contains('No task has the id')),
+          ),
+        );
+      },
+    );
+
+    test(
+      'the same title twice asks for the id, unless only one is open',
+      () async {
+        await server.addServerOp('CRT', '[Task Shared] addTask', {
+          'task': fixtureTask('t8', 'Buy milk', extra: {'isDone': true}),
+        }, entityId: 't8');
+        final tasks = service();
+        expect((await tasks.find(title: 'Buy milk')).id, 't1');
+        await server.addServerOp('CRT', '[Task Shared] addTask', {
+          'task': fixtureTask('t9', 'Buy milk'),
+        }, entityId: 't9');
+        await expectLater(
+          service().find(title: 'Buy milk'),
+          throwsA(predicate((e) => e.toString().contains('Several tasks'))),
+        );
+      },
+    );
 
     test('only operations after the cached position are fetched', () async {
       final tasks = service();

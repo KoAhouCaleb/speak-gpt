@@ -223,37 +223,61 @@ class SuperSyncTasks {
     return _find(state, id: id, title: title);
   }
 
+  /// Finds one task by its id or by its exact title (ignoring case). A title that only
+  /// resembles a task is an error with suggestions: changing the wrong task silently is worse
+  /// than asking the model to try again.
   SyncedTask _find(SyncState state, {String? id, String? title}) {
-    if (id != null && state.tasks[id] != null) {
-      return SyncedTask(
-        state.tasks[id]!,
-        _projectTitle(state, state.tasks[id]!),
-      );
+    SyncedTask wrap(Map<String, dynamic> t) =>
+        SyncedTask(t, _projectTitle(state, t));
+
+    final wantedId = id?.trim();
+    if (wantedId != null && wantedId.isNotEmpty) {
+      final byId = state.tasks[wantedId];
+      if (byId != null) return wrap(byId);
+      if (title == null || title.trim().isEmpty) {
+        throw SuperSyncException(
+          'No task has the id "$wantedId". Use list_tasks to see the ids.',
+        );
+      }
     }
-    final query = (title ?? id ?? '').trim().toLowerCase();
+
+    final query = (title ?? '').trim().toLowerCase();
     if (query.isEmpty) {
-      throw SuperSyncException('Give the id or the title of the task');
+      throw SuperSyncException('Give the id or the exact title of the task');
     }
-    final all = state.tasks.values.toList();
-    final exact = all
-        .where((t) => '${t['title']}'.toLowerCase() == query)
+
+    final exact = state.tasks.values
+        .where((t) => '${t['title']}'.trim().toLowerCase() == query)
         .toList();
-    final open = (exact.isNotEmpty
-        ? exact
-        : all
-              .where((t) => '${t['title']}'.toLowerCase().contains(query))
-              .toList());
-    // Prefer unfinished tasks when the same title also exists as a finished one
-    final matches = open.any((t) => t['isDone'] != true)
-        ? open.where((t) => t['isDone'] != true).toList()
-        : open;
-    if (matches.isEmpty) throw SuperSyncException('No task matches "$query"');
+    // The same title can exist as a finished and an open task: the open one is meant
+    final open = exact.where((t) => t['isDone'] != true).toList();
+    final matches = open.isNotEmpty ? open : exact;
+
+    if (matches.length == 1) return wrap(matches.single);
     if (matches.length > 1) {
       throw SuperSyncException(
-        'Several tasks match "$query", use the id: ${matches.map((t) => '[${t['id']}] ${t['title']}').join('; ')}',
+        'Several tasks are titled "$title", use the id: ${matches.map((t) => '[${t['id']}] ${t['title']}').join('; ')}',
       );
     }
-    return SyncedTask(matches.single, _projectTitle(state, matches.single));
+
+    final words = query
+        .split(RegExp(r'\s+'))
+        .where((w) => w.length > 2)
+        .toSet();
+    final similar = state.tasks.values
+        .where((t) {
+          final name = '${t['title']}'.toLowerCase();
+          return name.contains(query) ||
+              query.contains(name) ||
+              words.any(name.contains);
+        })
+        .take(5)
+        .toList();
+    throw SuperSyncException(
+      similar.isEmpty
+          ? 'No task is titled "$title". Use list_tasks to see the tasks.'
+          : 'No task is titled "$title". Similar tasks (use the id): ${similar.map((t) => '[${t['id']}] ${t['title']}${t['isDone'] == true ? ' (done)' : ''}').join('; ')}',
+    );
   }
 
   // ---- Writing ----------------------------------------------------------------------------
