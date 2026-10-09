@@ -207,6 +207,29 @@ void main() {
       );
     });
 
+    test('an event can be made repeating, or stopped repeating', () async {
+      native = (c) => true;
+      await run('update_calendar_event', {
+        'id': 4,
+        'repeat': 'daily',
+        'repeat_until': '2026-12-31',
+      });
+      final a = calls.last.arguments as Map;
+      expect(a['rrule'], startsWith('FREQ=DAILY;UNTIL='));
+      expect(a.containsKey('clearRrule'), false);
+
+      await run('update_calendar_event', {'id': 4, 'repeat': 'none'});
+      final b = calls.last.arguments as Map;
+      expect(b['clearRrule'], true);
+      expect(b.containsKey('rrule'), false);
+
+      final r = await run('update_calendar_event', {
+        'id': 4,
+        'repeat_until': '2026-12-31',
+      });
+      expect(r.text, contains('"repeat"'));
+    });
+
     test('updates and deletes by id', () async {
       native = (c) => true;
       expect(

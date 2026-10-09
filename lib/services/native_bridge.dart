@@ -316,9 +316,13 @@ class NativeBridge {
     DateTime? end,
     String? location,
     String? description,
+    String? recurrenceRule,
+    bool clearRecurrence = false,
   }) async {
     final ok = await _device<bool?>('calendarUpdate', 'Calendar', {
       'id': id,
+      'rrule': ?recurrenceRule,
+      if (clearRecurrence) 'clearRrule': true,
       'title': ?title,
       'start': ?start?.millisecondsSinceEpoch,
       'end': ?end?.millisecondsSinceEpoch,

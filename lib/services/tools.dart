@@ -500,26 +500,7 @@ final List<AssistantTool> allTools = [
         'type': 'integer',
         'description': 'Reminder this many minutes before the start',
       },
-      'repeat': {
-        'type': 'string',
-        'enum': ['daily', 'weekly', 'monthly', 'yearly'],
-        'description':
-            'Make the event repeat. It repeats forever unless repeat_until is given.',
-      },
-      'repeat_interval': {
-        'type': 'integer',
-        'description':
-            'Repeat every this many days, weeks, months or years, 1 by default',
-      },
-      'repeat_days': {
-        'type': 'array',
-        'items': {'type': 'string'},
-        'description':
-            'For a weekly repeat, the days of the week, like ["monday", "wednesday"]. Defaults to the weekday of the start.',
-      },
-      'repeat_until': _str(
-        'Last day the event can happen on, like 2026-12-31. Leave out to repeat forever.',
-      ),
+      ..._repeatProperties,
     },
     required: const ['title', 'start'],
     defaultMode: ToolMode.confirm,
@@ -583,17 +564,41 @@ final List<AssistantTool> allTools = [
       'end': _str('New end in local time'),
       'location': _str('New location'),
       'description': _str('New notes'),
+      ..._repeatProperties,
     },
     required: const ['id'],
     defaultMode: ToolMode.confirm,
     describeCall: (a) => 'Change calendar event ${a['id']}',
     run: (args, ctx) async {
       final id = _intArg(args, 'id');
+      final start = _optDateArg(args, 'start');
+      final repeat = _optArg(args, 'repeat')?.toLowerCase();
+      if (repeat == null &&
+          ['repeat_interval', 'repeat_days', 'repeat_until'].any(
+            (k) => args[k] != null,
+          )) {
+        return const ToolResult(
+          'Give "repeat" too, to say how the event repeats.',
+        );
+      }
+      final String? rrule;
+      try {
+        // Whether the event is all day is only known on the device, which adjusts the end date
+        rrule = buildRecurrenceRule(
+          args,
+          start ?? DateTime.fromMillisecondsSinceEpoch(0),
+          allDay: false,
+        );
+      } on FormatException catch (e) {
+        return ToolResult(e.message);
+      }
       final ok = await NativeBridge.calendarUpdate(
         id,
         title: _optArg(args, 'title'),
-        start: _optDateArg(args, 'start'),
+        start: start,
         end: _optDateArg(args, 'end'),
+        recurrenceRule: rrule,
+        clearRecurrence: repeat == 'none',
         location: _optArg(args, 'location'),
         description: _optArg(args, 'description'),
       );
@@ -949,6 +954,30 @@ String describeEvent(CalendarEvent e) {
   if (h > 23 || min > 59) return null;
   return (h, min);
 }
+
+/// Arguments that make a calendar event repeat, shared by adding and changing events.
+final _repeatProperties = <String, Object>{
+  'repeat': {
+    'type': 'string',
+    'enum': ['daily', 'weekly', 'monthly', 'yearly', 'none'],
+    'description':
+        'Make the event repeat, or "none" to stop it repeating. It repeats forever unless repeat_until is given.',
+  },
+  'repeat_interval': {
+    'type': 'integer',
+    'description':
+        'Repeat every this many days, weeks, months or years, 1 by default',
+  },
+  'repeat_days': {
+    'type': 'array',
+    'items': {'type': 'string'},
+    'description':
+        'For a weekly repeat, the days of the week, like ["monday", "wednesday"]. Defaults to the weekday of the start.',
+  },
+  'repeat_until': _str(
+    'Last day the event can happen on, like 2026-12-31. Leave out to repeat forever.',
+  ),
+};
 
 const _rruleFrequencies = {
   'daily': 'DAILY',

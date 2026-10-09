@@ -139,17 +139,73 @@ object DeviceActions {
         return id
     }
 
+    /** Length in milliseconds of an RFC 2445 duration such as P3600S, PT1H or P2D. */
+    private fun durationMillis(duration: String?): Long? {
+        val m = Regex("^P(?:(\\d+)W)?(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)S)?)?$")
+            .matchEntire(duration ?: return null) ?: return null
+        val (w, d, h, min, sec) = m.destructured
+        fun n(v: String) = if (v.isEmpty()) 0L else v.toLong()
+        return (((n(w) * 7 + n(d)) * 24 + n(h)) * 60 + n(min)) * 60_000 + n(sec) * 1000
+    }
+
     /** Changes only the fields that are present. Returns false if the event does not exist. */
     fun calendarUpdate(context: Context, id: Long, args: Map<String, Any?>): Boolean {
         val values = ContentValues()
         (args["title"] as? String)?.let { values.put(CalendarContract.Events.TITLE, it) }
         (args["location"] as? String)?.let { values.put(CalendarContract.Events.EVENT_LOCATION, it) }
         (args["description"] as? String)?.let { values.put(CalendarContract.Events.DESCRIPTION, it) }
-        (args["start"] as? Number)?.let { values.put(CalendarContract.Events.DTSTART, it.toLong()) }
-        (args["end"] as? Number)?.let { values.put(CalendarContract.Events.DTEND, it.toLong()) }
-        if (values.size() == 0) return true
 
+        val newStart = (args["start"] as? Number)?.toLong()
+        val newEnd = (args["end"] as? Number)?.toLong()
+        val newRule = args["rrule"] as? String
+        val clearRule = args["clearRrule"] == true
         val uri = ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id)
+
+        if (newStart != null || newEnd != null || newRule != null || clearRule) {
+            // Repeating events keep a DURATION and no DTEND, single ones the opposite, so the
+            // schedule is written as a whole
+            val projection = arrayOf(
+                CalendarContract.Events.DTSTART,
+                CalendarContract.Events.DTEND,
+                CalendarContract.Events.DURATION,
+                CalendarContract.Events.ALL_DAY,
+                CalendarContract.Events.RRULE,
+            )
+            val current = context.contentResolver.query(uri, projection, null, null, null)?.use { c ->
+                if (!c.moveToFirst()) return false
+                arrayOf(c.getLong(0), if (c.isNull(1)) null else c.getLong(1), c.getString(2), c.getLong(3), c.getString(4))
+            } ?: return false
+            val allDay = current[3] as Long == 1L
+            val start = newStart ?: current[0] as Long
+            val end = newEnd
+                ?: if (newStart != null || current[1] == null) {
+                    start + (durationMillis(current[2] as String?)
+                        ?: ((current[1] as Long? ?: start) - (current[0] as Long)))
+                } else {
+                    current[1] as Long
+                }
+            var keepRule = if (clearRule) null else newRule ?: current[4] as String?
+            if (allDay && keepRule != null) {
+                // An all day event takes a date as the last day of the repeat
+                keepRule = keepRule.replace(Regex("UNTIL=(\\d{8})T\\d{6}Z"), "UNTIL=\$1")
+            }
+
+            values.put(CalendarContract.Events.DTSTART, start)
+            if (keepRule == null) {
+                values.put(CalendarContract.Events.DTEND, end)
+                values.putNull(CalendarContract.Events.RRULE)
+                values.putNull(CalendarContract.Events.DURATION)
+            } else {
+                val seconds = (end - start) / 1000
+                values.putNull(CalendarContract.Events.DTEND)
+                values.put(CalendarContract.Events.RRULE, keepRule)
+                values.put(
+                    CalendarContract.Events.DURATION,
+                    if (allDay) "P${seconds / 86400}D" else "P${seconds}S",
+                )
+            }
+        }
+        if (values.size() == 0) return true
         return context.contentResolver.update(uri, values, null, null) > 0
     }
 
