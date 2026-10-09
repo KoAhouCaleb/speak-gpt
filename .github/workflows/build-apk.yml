@@ -6,6 +6,7 @@ on:
       - main
       - flutter-main
       - claude/flutter-main-69c3f7
+      - claude/blissful-noether-4jc1nt
   pull_request:
   workflow_dispatch:
 

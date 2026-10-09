@@ -956,7 +956,7 @@ String describeEvent(CalendarEvent e) {
 }
 
 /// Arguments that make a calendar event repeat, shared by adding and changing events.
-final _repeatProperties = <String, Object>{
+final _repeatProperties = <String, Map<String, dynamic>>{
   'repeat': {
     'type': 'string',
     'enum': ['daily', 'weekly', 'monthly', 'yearly', 'none'],
