@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/models.dart';
+import 'vad_params.dart';
 
 /// Persistence for chats, endpoints and settings. API keys live in secure storage.
 class Storage extends ChangeNotifier {
@@ -91,6 +92,87 @@ class Storage extends ChangeNotifier {
   bool get showChatErrors => _prefs.getBool('show_chat_errors') ?? true;
   Future<void> setShowChatErrors(bool v) async {
     await _prefs.setBool('show_chat_errors', v);
+    notifyListeners();
+  }
+
+  // ---- Voice activity detection and wake word ------------------------
+
+  /// Dictate button: end the message when the speaker stops talking.
+  bool get vadOnDictate => _prefs.getBool('vad_on_dictate') ?? false;
+  Future<void> setVadOnDictate(bool v) async {
+    await _prefs.setBool('vad_on_dictate', v);
+    notifyListeners();
+  }
+
+  /// Headset button long press: start listening with VAD as soon as Grace opens.
+  bool get vadHeadset => _prefs.getBool('vad_headset') ?? false;
+  Future<void> setVadHeadset(bool v) async {
+    await _prefs.setBool('vad_headset', v);
+    notifyListeners();
+  }
+
+  /// Assistant gesture: start listening with VAD as soon as Grace opens.
+  bool get vadGesture => _prefs.getBool('vad_gesture') ?? false;
+  Future<void> setVadGesture(bool v) async {
+    await _prefs.setBool('vad_gesture', v);
+    notifyListeners();
+  }
+
+  /// Wake word: listen with VAD after the wake word (otherwise the normal dictation starts).
+  bool get vadWakeWord => _prefs.getBool('vad_wake_word') ?? false;
+  Future<void> setVadWakeWord(bool v) async {
+    await _prefs.setBool('vad_wake_word', v);
+    notifyListeners();
+  }
+
+  /// Whether the VAD setting of the given trigger is on. Triggers are the strings the native
+  /// side and the wake word service use: 'headset', 'gesture' and 'wakeword'. An empty or
+  /// unknown trigger means the dictate button.
+  bool vadForTrigger(String trigger) => switch (trigger) {
+    'headset' => vadHeadset,
+    'gesture' => vadGesture,
+    'wakeword' => vadWakeWord,
+    _ => vadOnDictate,
+  };
+
+  /// Listen for the wake word while the app is open.
+  bool get wakeWordEnabled => _prefs.getBool('wake_word_enabled') ?? false;
+  Future<void> setWakeWordEnabled(bool v) async {
+    await _prefs.setBool('wake_word_enabled', v);
+    notifyListeners();
+  }
+
+  // Advanced VAD settings, in frames of the Silero v5 model (32 ms each)
+  int get vadMinSpeechFrames =>
+      _prefs.getInt('vad_min_speech_frames') ??
+      VadParams.defaults.minSpeechFrames;
+  int get vadPreSpeechPadFrames =>
+      _prefs.getInt('vad_pre_speech_pad_frames') ??
+      VadParams.defaults.preSpeechPadFrames;
+  int get vadRedemptionFrames =>
+      _prefs.getInt('vad_redemption_frames') ??
+      VadParams.defaults.redemptionFrames;
+  double get vadPositiveThreshold =>
+      _prefs.getDouble('vad_positive_threshold') ??
+      VadParams.defaults.positiveSpeechThreshold;
+  double get vadNegativeThreshold =>
+      _prefs.getDouble('vad_negative_threshold') ??
+      VadParams.defaults.negativeSpeechThreshold;
+
+  VadParams get vadParams => VadParams(
+    minSpeechFrames: vadMinSpeechFrames,
+    preSpeechPadFrames: vadPreSpeechPadFrames,
+    redemptionFrames: vadRedemptionFrames,
+    positiveSpeechThreshold: vadPositiveThreshold,
+    negativeSpeechThreshold: vadNegativeThreshold,
+  );
+
+  Future<void> setVadParams(VadParams p) async {
+    await _prefs.setInt('vad_min_speech_frames', p.minSpeechFrames);
+    await _prefs.setInt('vad_pre_speech_pad_frames', p.preSpeechPadFrames);
+    await _prefs.setInt('vad_redemption_frames', p.redemptionFrames);
+    await _prefs.setDouble('vad_positive_threshold', p.positiveSpeechThreshold);
+    await _prefs.setDouble('vad_negative_threshold', p.negativeSpeechThreshold);
     notifyListeners();
   }
 

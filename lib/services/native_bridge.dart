@@ -6,11 +6,16 @@ class AssistContext {
     this.text = '',
     this.screenshotPath = '',
     this.timestamp = 0,
+    this.trigger = '',
   });
 
   final String text;
   final String screenshotPath;
   final int timestamp;
+
+  /// What started the assistant: 'gesture', 'headset' (long press of the headset button) or
+  /// 'wakeword'. Empty when unknown.
+  final String trigger;
 
   bool get isEmpty => text.trim().isEmpty && screenshotPath.isEmpty;
 
@@ -18,6 +23,7 @@ class AssistContext {
     text: '${map?['text'] ?? ''}',
     screenshotPath: '${map?['screenshotPath'] ?? ''}',
     timestamp: (map?['timestamp'] as num?)?.toInt() ?? 0,
+    trigger: '${map?['trigger'] ?? ''}',
   );
 }
 

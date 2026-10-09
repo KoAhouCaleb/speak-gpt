@@ -132,6 +132,9 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       _attachShot =
           _storage.autoAttachScreen && captured.screenshotPath.isNotEmpty;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _startForTrigger(captured.trigger);
+    });
   }
 
   void _onChange() {
@@ -201,9 +204,35 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       await _stopListening();
       return;
     }
+    await _startListening(useVad: _storage.vadOnDictate);
+  }
+
+  /// The assistant gesture and the headset button only listen when their VAD setting is on.
+  Future<void> _startForTrigger(String trigger) async {
+    if (_storage.vadForTrigger(trigger) && trigger.isNotEmpty) {
+      await _startListening(useVad: true);
+    }
+  }
+
+  Future<void> _startListening({required bool useVad}) async {
+    if (_listening) return;
+    var vad = useVad;
+    if (vad && !_speech.vadAvailable) {
+      vad = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Voice activity detection needs a speech to text server (Settings > Speech servers). '
+            'Using the standard dictation instead.',
+          ),
+        ),
+      );
+    }
+
     _dictationBase = _input.text.isEmpty ? '' : '${_input.text.trimRight()} ';
     final ok = await _speech.listen(
       locale: _storage.speechLocale,
+      useVad: vad,
       onResult: (text, isFinal) {
         if (!mounted) return;
         final value = '$_dictationBase$text';

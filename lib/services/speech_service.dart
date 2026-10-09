@@ -8,19 +8,37 @@ import 'package:speech_to_text/speech_to_text.dart';
 
 import '../models/models.dart';
 import 'audio_queue.dart';
+import 'mic_hub.dart';
 import 'speech_server_client.dart';
 import 'speech_stream.dart';
 import 'storage.dart';
+import 'voice_activity.dart';
+import 'wav.dart';
 
 /// Speech input and output.
 ///
 /// Input uses the self-hosted server when one is configured (the microphone is recorded and
 /// the file is transcribed), otherwise the Android speech recognizer. Output works the same way
 /// with flutter_tts as the fallback.
+///
+/// Input can also be ended by voice activity detection: the microphone is watched, the message
+/// is cut out when the speaker stops, and that audio goes to the speech server. The Android
+/// recognizer cannot take audio that was recorded elsewhere, so this needs the server.
 class SpeechService {
-  SpeechService(this._storage);
+  SpeechService(
+    this._storage, {
+    MicHub? mic,
+    VoiceActivityDetector? vad,
+    Future<String> Function(SpeechServerConfig config, File audio)? transcribe,
+  }) : _mic = mic ?? MicHub.shared,
+       _vad = vad ?? VoiceActivityDetector(),
+       _transcribe = transcribe ?? SpeechServerClient.transcribe;
 
   final Storage _storage;
+  final MicHub _mic;
+  final VoiceActivityDetector _vad;
+  final Future<String> Function(SpeechServerConfig config, File audio)
+  _transcribe;
 
   final SpeechToText _stt = SpeechToText();
   final FlutterTts _tts = FlutterTts();
@@ -30,6 +48,7 @@ class SpeechService {
   bool _sttReady = false;
 
   bool _recording = false;
+  bool _micPaused = false;
   void Function(String text, bool isFinal)? _onResult;
   void Function(String error)? _onError;
   void Function()? _onDone;
@@ -44,36 +63,64 @@ class SpeechService {
         voice: _storage.ttsEndpointVoice,
       );
 
-  bool get isListening => _recording || _stt.isListening;
+  bool get isListening => _recording || _vad.listening || _stt.isListening;
+
+  /// Whether dictation can be ended by voice activity detection: it needs a speech to text
+  /// server, because that is what transcribes the audio the detector cuts out.
+  bool get vadAvailable => _storage.speechServer(Storage.speechStt).active;
 
   /// Starts dictation. Returns false if speech recognition is unavailable or not allowed.
+  ///
+  /// With [useVad] (and [vadAvailable]) the dictation ends by itself when the speaker stops,
+  /// [onSpeechStart] reports the moment speech was detected.
   Future<bool> listen({
     required void Function(String text, bool isFinal) onResult,
     void Function(String error)? onError,
     void Function()? onDone,
     String locale = '',
+    bool useVad = false,
+    void Function()? onSpeechStart,
   }) async {
     final server = _storage.speechServer(Storage.speechStt);
+    if (server.active && useVad) {
+      return _listenWithVad(onResult, onError, onDone, onSpeechStart);
+    }
     if (server.active) return _listenToServer(onResult, onError, onDone);
 
     if (!_sttReady) {
       _sttReady = await _stt.initialize(
-        onError: (e) => onError?.call(e.errorMsg),
+        onError: (e) {
+          _resumeMic();
+          onError?.call(e.errorMsg);
+        },
         onStatus: (s) {
-          if (s == 'done' || s == 'notListening') onDone?.call();
+          if (s == 'done' || s == 'notListening') {
+            _resumeMic();
+            onDone?.call();
+          }
         },
       );
     }
     if (!_sttReady) return false;
 
-    await _stt.listen(
-      onResult: (r) => onResult(r.recognizedWords, r.finalResult),
-      listenOptions: SpeechListenOptions(
-        partialResults: true,
-        listenMode: ListenMode.dictation,
-        localeId: locale.isEmpty ? null : locale,
-      ),
-    );
+    // The wake word keeps the microphone open, the recognizer needs it for itself
+    if (_mic.active) {
+      _micPaused = true;
+      await _mic.pause();
+    }
+    try {
+      await _stt.listen(
+        onResult: (r) => onResult(r.recognizedWords, r.finalResult),
+        listenOptions: SpeechListenOptions(
+          partialResults: true,
+          listenMode: ListenMode.dictation,
+          localeId: locale.isEmpty ? null : locale,
+        ),
+      );
+    } catch (_) {
+      _resumeMic();
+      rethrow;
+    }
     return true;
   }
 
@@ -97,10 +144,56 @@ class SpeechService {
     return true;
   }
 
+  Future<bool> _listenWithVad(
+    void Function(String text, bool isFinal) onResult,
+    void Function(String error)? onError,
+    void Function()? onDone,
+    void Function()? onSpeechStart,
+  ) async {
+    if (_vad.listening) return true;
+    if (!await _mic.acquire(this)) return false;
+
+    // Runs until the message is complete, nobody waits for it here
+    unawaited(() async {
+      try {
+        final samples = await _vad.listen(
+          _storage.vadParams,
+          audio: _mic.stream,
+          onSpeechStart: onSpeechStart,
+        );
+        // The microphone is not needed for the transcription
+        await _mic.release(this);
+        if (samples == null) return;
+
+        final text = await _transcribeSamples(samples);
+        onResult(text, true);
+      } catch (e) {
+        onError?.call(e.toString());
+      } finally {
+        await _mic.release(this);
+        onDone?.call();
+      }
+    }());
+    return true;
+  }
+
+  Future<String> _transcribeSamples(List<double> samples) async {
+    final dir = await getTemporaryDirectory();
+    final file = File('${dir.path}/dictation_vad.wav');
+    await file.writeAsBytes(encodeWav(samples));
+    return _transcribe(_storage.speechServer(Storage.speechStt), file);
+  }
+
   /// Ends dictation. With a speech server the recording is sent for transcription now.
   Future<void> stopListening() async {
+    if (_vad.listening) {
+      // What was said so far is transcribed, as with a server recording
+      await _vad.finish();
+      return;
+    }
     if (!_recording) {
       await _stt.stop();
+      _resumeMic();
       return;
     }
 
@@ -122,6 +215,12 @@ class SpeechService {
     } finally {
       onDone?.call();
     }
+  }
+
+  void _resumeMic() {
+    if (!_micPaused) return;
+    _micPaused = false;
+    unawaited(_mic.resume());
   }
 
   /// Opens a stream that reads an answer aloud sentence by sentence while it is being written.
@@ -200,7 +299,9 @@ class SpeechService {
   }
 
   void dispose() {
+    _vad.cancel();
     _stt.cancel();
+    _resumeMic();
     unawaited(stopSpeaking());
     _recorder?.dispose();
     _queue.dispose();
