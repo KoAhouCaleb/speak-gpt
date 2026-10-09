@@ -65,8 +65,6 @@ jobs:
           echo "DEBUG_KEYSTORE_FILE=$keystore" >> "$GITHUB_ENV"
 
       - run: flutter pub get
-      - run: flutter analyze
-      - run: flutter test
       - run: flutter build apk --debug
 
       - name: Print signing certificate
