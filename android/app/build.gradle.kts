@@ -30,6 +30,14 @@ android {
         versionName = flutter.versionName
     }
 
+    packaging {
+        jniLibs {
+            // open_wake_word and vad both bring libonnxruntime.so; android/build.gradle.kts makes
+            // them the same file, so it does not matter which one is kept
+            pickFirsts += "**/libonnxruntime.so"
+        }
+    }
+
     signingConfigs {
         getByName("debug") {
             // CI provides a fixed debug keystore so every build installs as an update.
