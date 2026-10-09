@@ -303,11 +303,13 @@ class NativeBridge {
     String? location,
     String? description,
     int? reminderMinutes,
+    String? recurrenceRule,
   }) => _device<int?>('calendarAdd', 'Calendar', {
     'title': title,
     'start': start.millisecondsSinceEpoch,
     'end': end.millisecondsSinceEpoch,
     'allDay': allDay,
+    'rrule': ?recurrenceRule,
     'location': ?location,
     'description': ?description,
     'reminderMinutes': ?reminderMinutes,
@@ -320,9 +322,13 @@ class NativeBridge {
     DateTime? end,
     String? location,
     String? description,
+    String? recurrenceRule,
+    bool clearRecurrence = false,
   }) async {
     final ok = await _device<bool?>('calendarUpdate', 'Calendar', {
       'id': id,
+      'rrule': ?recurrenceRule,
+      if (clearRecurrence) 'clearRrule': true,
       'title': ?title,
       'start': ?start?.millisecondsSinceEpoch,
       'end': ?end?.millisecondsSinceEpoch,

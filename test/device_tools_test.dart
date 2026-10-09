@@ -143,6 +143,48 @@ void main() {
       expect(a['end'], DateTime.utc(2026, 10, 10).millisecondsSinceEpoch);
     });
 
+    test('a repeating event repeats forever without an end date', () async {
+      native = (c) => 5;
+      final r = await run('add_calendar_event', {
+        'title': 'Standup',
+        'start': '2026-10-12T09:00',
+        'repeat': 'weekly',
+        'repeat_days': ['monday', 'wednesday'],
+      });
+      expect(
+        (calls.single.arguments as Map)['rrule'],
+        'FREQ=WEEKLY;BYDAY=MO,WE',
+      );
+      expect(r.text, contains('forever'));
+    });
+
+    test('a repeating event can stop on a date', () async {
+      native = (c) => 5;
+      await run('add_calendar_event', {
+        'title': 'Pay rent',
+        'start': '2026-10-01',
+        'all_day': true,
+        'repeat': 'monthly',
+        'repeat_interval': 2,
+        'repeat_until': '2027-04-01',
+      });
+      expect(
+        (calls.single.arguments as Map)['rrule'],
+        'FREQ=MONTHLY;INTERVAL=2;UNTIL=20270401',
+      );
+    });
+
+    test('rejects a bad repeat', () async {
+      final r = await run('add_calendar_event', {
+        'title': 'x',
+        'start': '2026-10-12T09:00',
+        'repeat': 'daily',
+        'repeat_until': '2026-10-01',
+      });
+      expect(r.text, contains('before the start'));
+      expect(calls, isEmpty);
+    });
+
     test('rejects an end before the start and a bad date', () async {
       final r = await run('add_calendar_event', {
         'title': 'x',
@@ -163,6 +205,29 @@ void main() {
         () => run('list_calendar_events', {}),
         throwsA(predicate((e) => e.toString().contains('Calendar permission'))),
       );
+    });
+
+    test('an event can be made repeating, or stopped repeating', () async {
+      native = (c) => true;
+      await run('update_calendar_event', {
+        'id': 4,
+        'repeat': 'daily',
+        'repeat_until': '2026-12-31',
+      });
+      final a = calls.last.arguments as Map;
+      expect(a['rrule'], startsWith('FREQ=DAILY;UNTIL='));
+      expect(a.containsKey('clearRrule'), false);
+
+      await run('update_calendar_event', {'id': 4, 'repeat': 'none'});
+      final b = calls.last.arguments as Map;
+      expect(b['clearRrule'], true);
+      expect(b.containsKey('rrule'), false);
+
+      final r = await run('update_calendar_event', {
+        'id': 4,
+        'repeat_until': '2026-12-31',
+      });
+      expect(r.text, contains('"repeat"'));
     });
 
     test('updates and deletes by id', () async {
