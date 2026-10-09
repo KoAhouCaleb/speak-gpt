@@ -104,7 +104,18 @@ object DeviceActions {
             put(CalendarContract.Events.CALENDAR_ID, calendarId)
             put(CalendarContract.Events.TITLE, args["title"] as String)
             put(CalendarContract.Events.DTSTART, start)
-            put(CalendarContract.Events.DTEND, end)
+            val rrule = args["rrule"] as? String
+            if (rrule == null) {
+                put(CalendarContract.Events.DTEND, end)
+            } else {
+                // A repeating event has a DURATION and no DTEND
+                put(CalendarContract.Events.RRULE, rrule)
+                val seconds = (end - start) / 1000
+                put(
+                    CalendarContract.Events.DURATION,
+                    if (allDay) "P${seconds / 86400}D" else "P${seconds}S",
+                )
+            }
             put(CalendarContract.Events.ALL_DAY, if (allDay) 1 else 0)
             // All day events are stored in UTC
             put(

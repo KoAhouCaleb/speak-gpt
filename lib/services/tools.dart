@@ -500,6 +500,26 @@ final List<AssistantTool> allTools = [
         'type': 'integer',
         'description': 'Reminder this many minutes before the start',
       },
+      'repeat': {
+        'type': 'string',
+        'enum': ['daily', 'weekly', 'monthly', 'yearly'],
+        'description':
+            'Make the event repeat. It repeats forever unless repeat_until is given.',
+      },
+      'repeat_interval': {
+        'type': 'integer',
+        'description':
+            'Repeat every this many days, weeks, months or years, 1 by default',
+      },
+      'repeat_days': {
+        'type': 'array',
+        'items': {'type': 'string'},
+        'description':
+            'For a weekly repeat, the days of the week, like ["monday", "wednesday"]. Defaults to the weekday of the start.',
+      },
+      'repeat_until': _str(
+        'Last day the event can happen on, like 2026-12-31. Leave out to repeat forever.',
+      ),
     },
     required: const ['title', 'start'],
     defaultMode: ToolMode.confirm,
@@ -521,11 +541,18 @@ final List<AssistantTool> allTools = [
           return const ToolResult('The end must be after the start.');
         }
       }
+      final String? rrule;
+      try {
+        rrule = buildRecurrenceRule(args, start, allDay: allDay);
+      } on FormatException catch (e) {
+        return ToolResult(e.message);
+      }
       final id = await NativeBridge.calendarAdd(
         title: title,
         start: start,
         end: end,
         allDay: allDay,
+        recurrenceRule: rrule,
         location: _optArg(args, 'location'),
         description: _optArg(args, 'description'),
         reminderMinutes: _optIntArg(args, 'reminder_minutes'),
@@ -535,7 +562,14 @@ final List<AssistantTool> allTools = [
           'There is no calendar on the device that can be written to.',
         );
       }
-      return ToolResult('Added "$title" to the calendar, event id $id.');
+      final repeats = rrule == null
+          ? ''
+          : _optArg(args, 'repeat_until') == null
+          ? ', repeating forever'
+          : ', repeating until ${_optArg(args, 'repeat_until')}';
+      return ToolResult(
+        'Added "$title" to the calendar$repeats, event id $id.',
+      );
     },
   ),
   AssistantTool(
@@ -713,16 +747,38 @@ final List<AssistantTool> allTools = [
       },
       'project': _str('Only the tasks of this project, by name'),
       'search': _str('Only tasks whose title or notes contain this text'),
+      'due_from': _str(
+        'Only tasks due on or after this, like 2026-10-08 or 2026-10-08T15:00. Tasks without a due date are left out.',
+      ),
+      'due_to': _str(
+        'Only tasks due on or before this, like 2026-10-15. A date without a time includes that whole day.',
+      ),
     },
     required: const [],
     defaultMode: ToolMode.auto,
     describeCall: (_) => 'Read the task list',
     run: (args, ctx) async {
+      final dueFrom = _optDateArg(args, 'due_from');
+      var dueBefore = _optDateArg(args, 'due_to');
+      if (dueBefore != null) {
+        final dateOnly = RegExp(
+          r'^\d{4}-\d{2}-\d{2}$',
+        ).hasMatch(_optArg(args, 'due_to')!);
+        // "on or before" a date includes the whole day, a moment includes that minute
+        dueBefore = dateOnly
+            ? DateTime(dueBefore.year, dueBefore.month, dueBefore.day + 1)
+            : dueBefore.add(const Duration(minutes: 1));
+      }
+      if (dueFrom != null && dueBefore != null && !dueBefore.isAfter(dueFrom)) {
+        return const ToolResult('"due_to" must not be before "due_from".');
+      }
       final tasks = await ctx.tasks();
       final items = await tasks.list(
         includeDone: args['include_done'] == true,
         project: _optArg(args, 'project'),
         search: _optArg(args, 'search'),
+        dueFrom: dueFrom,
+        dueBefore: dueBefore,
       );
       if (items.isEmpty) return const ToolResult('No tasks.');
       final hint = tasks.ignoredOperations > 0
@@ -892,6 +948,81 @@ String describeEvent(CalendarEvent e) {
   final min = int.parse(m.group(2)!);
   if (h > 23 || min > 59) return null;
   return (h, min);
+}
+
+const _rruleFrequencies = {
+  'daily': 'DAILY',
+  'weekly': 'WEEKLY',
+  'monthly': 'MONTHLY',
+  'yearly': 'YEARLY',
+};
+
+const _rruleDays = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+
+/// The iCalendar RRULE for the "repeat*" arguments, or null if the event does not repeat.
+/// Without "repeat_until" the rule has no end. Throws a [FormatException] with a message
+/// meant for the model.
+String? buildRecurrenceRule(
+  Map<String, dynamic> args,
+  DateTime start, {
+  required bool allDay,
+}) {
+  final repeat = _optArg(args, 'repeat')?.toLowerCase();
+  if (repeat == null || repeat == 'none') return null;
+  final freq = _rruleFrequencies[repeat];
+  if (freq == null) {
+    throw const FormatException(
+      '"repeat" must be daily, weekly, monthly or yearly.',
+    );
+  }
+  final parts = ['FREQ=$freq'];
+
+  final interval = _optIntArg(args, 'repeat_interval') ?? 1;
+  if (interval < 1) {
+    throw const FormatException('"repeat_interval" must be at least 1.');
+  }
+  if (interval > 1) parts.add('INTERVAL=$interval');
+
+  final days = args['repeat_days'];
+  if (days != null) {
+    if (freq != 'WEEKLY') {
+      throw const FormatException(
+        '"repeat_days" only works with a weekly repeat.',
+      );
+    }
+    final numbers = parseWeekdays(days);
+    if (numbers.isNotEmpty) {
+      parts.add('BYDAY=${numbers.map((n) => _rruleDays[n - 1]).join(',')}');
+    }
+  }
+
+  final untilText = _optArg(args, 'repeat_until');
+  if (untilText != null) {
+    final until = parseLocalDateTime(untilText);
+    if (until == null) {
+      throw const FormatException(
+        '"repeat_until" is not a date. Use the format 2026-12-31.',
+      );
+    }
+    final lastDay = DateTime(until.year, until.month, until.day);
+    final firstDay = DateTime(start.year, start.month, start.day);
+    if (lastDay.isBefore(firstDay)) {
+      throw const FormatException(
+        '"repeat_until" must not be before the start.',
+      );
+    }
+    if (allDay) {
+      parts.add('UNTIL=${lastDay.year}${_two(lastDay.month)}${_two(lastDay.day)}');
+    } else {
+      // The last day counts fully, so the limit is the end of that day
+      final t = DateTime(lastDay.year, lastDay.month, lastDay.day, 23, 59, 59).toUtc();
+      parts.add(
+        'UNTIL=${t.year.toString().padLeft(4, '0')}${_two(t.month)}${_two(t.day)}'
+        'T${_two(t.hour)}${_two(t.minute)}${_two(t.second)}Z',
+      );
+    }
+  }
+  return parts.join(';');
 }
 
 /// Android's Calendar numbering: 1 is Sunday.

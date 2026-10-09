@@ -297,11 +297,13 @@ class NativeBridge {
     String? location,
     String? description,
     int? reminderMinutes,
+    String? recurrenceRule,
   }) => _device<int?>('calendarAdd', 'Calendar', {
     'title': title,
     'start': start.millisecondsSinceEpoch,
     'end': end.millisecondsSinceEpoch,
     'allDay': allDay,
+    'rrule': ?recurrenceRule,
     'location': ?location,
     'description': ?description,
     'reminderMinutes': ?reminderMinutes,

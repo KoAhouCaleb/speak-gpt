@@ -149,6 +149,8 @@ class SuperSyncTasks {
     bool includeDone = false,
     String? project,
     String? search,
+    DateTime? dueFrom,
+    DateTime? dueBefore,
   }) async {
     final state = await sync();
     final projectId = project == null ? null : _projectId(state, project);
@@ -163,13 +165,22 @@ class SuperSyncTasks {
       );
     for (final t in tasks) {
       if (t['parentId'] != null) continue;
-      final parentShown = _matches(t, includeDone, projectId, query);
+      final parentShown = _matches(
+        t,
+        includeDone,
+        projectId,
+        query,
+        dueFrom,
+        dueBefore,
+      );
       final subs = [
         for (final id in (t['subTaskIds'] as List? ?? const []))
           if (state.tasks['$id'] != null) state.tasks['$id']!,
       ];
       final shownSubs = subs
-          .where((s) => _matches(s, includeDone, projectId, query))
+          .where(
+            (s) => _matches(s, includeDone, projectId, query, dueFrom, dueBefore),
+          )
           .toList();
       if (!parentShown && shownSubs.isEmpty) continue;
       result.add(SyncedTask(t, _projectTitle(state, t)));
@@ -185,9 +196,18 @@ class SuperSyncTasks {
     bool includeDone,
     String? projectId,
     String? query,
+    DateTime? dueFrom,
+    DateTime? dueBefore,
   ) {
     if (!includeDone && t['isDone'] == true) return false;
     if (projectId != null && t['projectId'] != projectId) return false;
+    if (dueFrom != null || dueBefore != null) {
+      // A date range only holds tasks that have a due date inside it
+      final due = SyncedTask(t, null).due;
+      if (due == null) return false;
+      if (dueFrom != null && due.isBefore(dueFrom)) return false;
+      if (dueBefore != null && !due.isBefore(dueBefore)) return false;
+    }
     if (query != null &&
         !'${t['title']} ${t['notes'] ?? ''}'.toLowerCase().contains(query)) {
       return false;
