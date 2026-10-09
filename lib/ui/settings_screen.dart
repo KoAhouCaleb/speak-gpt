@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../services/native_bridge.dart';
 import '../services/speech_server_client.dart';
 import '../services/storage.dart';
+import '../services/wake_word_service.dart';
 import 'chat_settings_screen.dart';
 import 'endpoints_screen.dart';
 import 'images_screen.dart';
@@ -12,6 +13,7 @@ import 'logit_bias_screen.dart';
 import 'prompts_screen.dart';
 import 'speech_servers_screen.dart';
 import 'tools_screen.dart';
+import 'vad_settings_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -353,6 +355,66 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
               onChanged: storage.setSpeechLocale,
             ),
+          ),
+          _header('Hands-free'),
+          SwitchListTile(
+            secondary: const Icon(Icons.hearing_outlined),
+            title: const Text('Wake word'),
+            subtitle: const Text(
+              'Say "${WakeWordService.phrase}" while Grace is open to start listening. '
+              'It does not listen while Grace is in the background.',
+            ),
+            value: storage.wakeWordEnabled,
+            onChanged: storage.setWakeWordEnabled,
+          ),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              'Voice activity detection (VAD) ends your message when you stop talking. It transcribes '
+              'with your speech to text server, so it needs one under Speech servers. Without a server the '
+              'standard dictation is used.',
+            ),
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.mic_none),
+            title: const Text('Use VAD after pressing Dictate'),
+            value: storage.vadOnDictate,
+            onChanged: storage.setVadOnDictate,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.headset_mic_outlined),
+            title: const Text('Use VAD with the headset trigger'),
+            subtitle: const Text(
+              'Long press of the headset button. Listens as soon as Grace opens.',
+            ),
+            value: storage.vadHeadset,
+            onChanged: storage.setVadHeadset,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.swipe_outlined),
+            title: const Text('Use VAD with the gesture trigger'),
+            subtitle: const Text(
+              'The assistant gesture. Listens as soon as Grace opens.',
+            ),
+            value: storage.vadGesture,
+            onChanged: storage.setVadGesture,
+          ),
+          SwitchListTile(
+            secondary: const Icon(Icons.campaign_outlined),
+            title: const Text('Use VAD with the wake word trigger'),
+            subtitle: const Text(
+              'Without it, the wake word starts the standard dictation.',
+            ),
+            value: storage.vadWakeWord,
+            onChanged: storage.setVadWakeWord,
+          ),
+          ListTile(
+            leading: const Icon(Icons.tune),
+            title: const Text('Advanced VAD settings'),
+            subtitle: const Text(
+              'Speech frames, padding, redemption and thresholds',
+            ),
+            onTap: () => _push(const VadSettingsScreen()),
           ),
           _header('Images'),
           Padding(

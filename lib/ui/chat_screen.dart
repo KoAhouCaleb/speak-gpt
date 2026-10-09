@@ -19,6 +19,7 @@ import 'chat_settings_screen.dart';
 import 'dialogs.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
+import 'voice_target.dart';
 
 class ChatScreen extends StatefulWidget {
   const ChatScreen({super.key, required this.chat, this.assist});
@@ -32,7 +33,7 @@ class ChatScreen extends StatefulWidget {
   State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
+class _ChatScreenState extends State<ChatScreen> implements VoiceTarget {
   late final ChatSession _session;
   late final Storage _storage;
   late final SpeechService _speech;
@@ -64,10 +65,18 @@ class _ChatScreenState extends State<ChatScreen> {
       _attachScreenText = assist.text.trim().isNotEmpty;
       _attachScreenshot = assist.screenshotPath.isNotEmpty;
     }
+
+    VoiceTargets.current = this;
+    if (assist != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _startForTrigger(assist.trigger);
+      });
+    }
   }
 
   @override
   void dispose() {
+    if (identical(VoiceTargets.current, this)) VoiceTargets.current = null;
     _session.removeListener(_onChange);
     _session.dispose();
     _speech.dispose();
@@ -188,10 +197,47 @@ class _ChatScreenState extends State<ChatScreen> {
       await _stopListening();
       return;
     }
+    await _startListening(useVad: _storage.vadOnDictate);
+  }
+
+  @override
+  bool get canStartVoice =>
+      mounted && (ModalRoute.of(context)?.isCurrent ?? false) && !_listening;
+
+  @override
+  Future<void> startVoice(String trigger) async {
+    if (!canStartVoice) return;
+    // Speaking over the answer interrupts it
+    await _speech.stopSpeaking();
+    await _startForTrigger(trigger);
+  }
+
+  /// The assistant gesture and the headset button only listen when their VAD setting is on,
+  /// the wake word always listens, with VAD if its setting is on.
+  Future<void> _startForTrigger(String trigger) async {
+    final vad = _storage.vadForTrigger(trigger);
+    if (vad || trigger == 'wakeword') await _startListening(useVad: vad);
+  }
+
+  Future<void> _startListening({required bool useVad}) async {
+    if (_listening) return;
+    var vad = useVad;
+    if (vad && !_speech.vadAvailable) {
+      vad = false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Voice activity detection needs a speech to text server (Settings > Speech servers). '
+            'Using the standard dictation instead.',
+          ),
+        ),
+      );
+    }
 
     _dictationBase = _input.text.isEmpty ? '' : '${_input.text.trimRight()} ';
     final ok = await _speech.listen(
       locale: _storage.speechLocale,
+      useVad: vad,
       onResult: (text, isFinal) {
         if (!mounted) return;
         _input.value = TextEditingValue(
@@ -276,7 +322,9 @@ class _ChatScreenState extends State<ChatScreen> {
     final settings = _session.settings;
     final messages = _session.messages;
     final assist = widget.assist;
-    final assistEmpty = assist != null && assist.isEmpty;
+    // The wake word has no screen to capture, so a missing capture is not a problem there
+    final assistEmpty =
+        assist != null && assist.isEmpty && assist.trigger != 'wakeword';
 
     return Scaffold(
       appBar: AppBar(

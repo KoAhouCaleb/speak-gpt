@@ -4,7 +4,7 @@ publish_to: 'none'
 version: 4.39.0+43901
 
 environment:
-  sdk: ^3.9.0
+  sdk: ^3.9.2
 
 dependencies:
   flutter:
@@ -27,6 +27,8 @@ dependencies:
   record: ^6.2.1
   audioplayers: ^6.7.1
   cryptography: ^2.9.0
+  vad: ^0.0.8
+  open_wake_word: ^0.3.0
 
 dev_dependencies:
   flutter_test:
@@ -37,3 +39,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/ai_sets.json
+    - assets/vad/silero_vad_v5.onnx
+    - assets/wake/melspectrogram.onnx
+    - assets/wake/embedding_model.onnx
+    - assets/wake/hey_jarvis_v0.1.onnx

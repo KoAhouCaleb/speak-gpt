@@ -32,6 +32,10 @@ open class GraceFlutterActivity : FlutterActivity() {
         const val ACTION_OPEN_CHAT = "com.grace.assistant.action.OPEN_CHAT"
         const val EXTRA_CHAT_ID = "chatId"
         const val ACTION_VOICE_SEARCH_HANDS_FREE = "android.speech.action.VOICE_SEARCH_HANDS_FREE"
+
+        // What started the assistant, as the Dart side names it (Storage.vadForTrigger)
+        const val TRIGGER_GESTURE = "gesture"
+        const val TRIGGER_HEADSET = "headset"
         private const val CHANNEL = "com.grace.assistant/native"
         private const val CONTACTS_REQUEST = 4201
     }
@@ -79,6 +83,7 @@ open class GraceFlutterActivity : FlutterActivity() {
 
     // Launches that started the activity before Flutter could receive them
     private var pendingAssist = false
+    private var pendingTrigger = TRIGGER_GESTURE
     private var pendingChatId: String? = null
     private var pendingShare: Map<String, String>? = null
 
@@ -92,6 +97,7 @@ open class GraceFlutterActivity : FlutterActivity() {
                 // Launched by the system without a session: nothing fresh was captured
                 if (isSystemAssistAction(intent?.action)) AssistStore.clear(this)
                 pendingAssist = true
+                pendingTrigger = triggerOf(intent?.action)
             }
             intent?.action == ACTION_OPEN_CHAT -> pendingChatId = intent?.getStringExtra(EXTRA_CHAT_ID)
             else -> pendingShare = intent?.let { extractShare(it) }
@@ -100,6 +106,20 @@ open class GraceFlutterActivity : FlutterActivity() {
 
     private fun isSystemAssistAction(action: String?): Boolean =
         action == Intent.ACTION_ASSIST || action == Intent.ACTION_VOICE_COMMAND || action == ACTION_VOICE_SEARCH_HANDS_FREE
+
+    /**
+     * The headset button long press arrives as a voice command, the assistant gesture as an
+     * assist (through GraceSession, which uses our own action, or directly).
+     */
+    private fun triggerOf(action: String?): String =
+        if (action == Intent.ACTION_VOICE_COMMAND || action == ACTION_VOICE_SEARCH_HANDS_FREE) TRIGGER_HEADSET
+        else TRIGGER_GESTURE
+
+    private fun captureMap(trigger: String): Map<String, Any> {
+        val map = HashMap<String, Any>(AssistStore.read(this)?.toMap() ?: emptyMap<String, Any>())
+        map["trigger"] = trigger
+        return map
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -115,8 +135,7 @@ open class GraceFlutterActivity : FlutterActivity() {
         when {
             intent.action == ACTION_ASSIST || isSystemAssistAction(intent.action) -> {
                 if (isSystemAssistAction(intent.action)) AssistStore.clear(this)
-                val capture = AssistStore.read(this)
-                channel?.invokeMethod("onAssist", capture?.toMap() ?: emptyMap<String, Any>())
+                channel?.invokeMethod("onAssist", captureMap(triggerOf(intent.action)))
             }
             intent.action == ACTION_OPEN_CHAT -> intent.getStringExtra(EXTRA_CHAT_ID)?.let { channel?.invokeMethod("onOpenChat", it) }
             else -> extractShare(intent)?.let { channel?.invokeMethod("onShare", it) }
@@ -128,7 +147,7 @@ open class GraceFlutterActivity : FlutterActivity() {
             "takePendingAssist" -> {
                 if (pendingAssist) {
                     pendingAssist = false
-                    result.success(AssistStore.read(this)?.toMap() ?: emptyMap<String, Any>())
+                    result.success(captureMap(pendingTrigger))
                 } else {
                     result.success(null)
                 }
