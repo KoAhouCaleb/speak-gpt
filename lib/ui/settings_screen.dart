@@ -259,6 +259,13 @@ class _SettingsScreenState extends State<SettingsScreen>
             value: storage.autoSend,
             onChanged: storage.setAutoSend,
           ),
+          SwitchListTile(
+            secondary: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Play a sound when ready to listen'),
+            subtitle: const Text('A short chime in the assistant overlay'),
+            value: storage.readySound,
+            onChanged: storage.setReadySound,
+          ),
           ListTile(
             leading: const Icon(Icons.record_voice_over_outlined),
             title: const Text('Speech engine'),
