@@ -88,6 +88,13 @@ class Storage extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Play a short chime in the assistant overlay when it starts listening.
+  bool get readySound => _prefs.getBool('ready_sound') ?? true;
+  Future<void> setReadySound(bool v) async {
+    await _prefs.setBool('ready_sound', v);
+    notifyListeners();
+  }
+
   /// Show why an answer failed inside the chat. Off shows a message that disappears.
   bool get showChatErrors => _prefs.getBool('show_chat_errors') ?? true;
   Future<void> setShowChatErrors(bool v) async {

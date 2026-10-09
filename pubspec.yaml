@@ -39,6 +39,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/ai_sets.json
+    - assets/sounds/ready.wav
     - assets/vad/silero_vad_v5.onnx
     - assets/wake/melspectrogram.onnx
     - assets/wake/embedding_model.onnx

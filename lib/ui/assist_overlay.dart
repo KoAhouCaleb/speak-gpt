@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -48,6 +49,7 @@ class AssistOverlayScreen extends StatefulWidget {
 class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   late final Storage _storage;
   late final SpeechService _speech;
+  AudioPlayer? _chime;
   final _input = TextEditingController();
   final _scroll = ScrollController();
 
@@ -83,6 +85,7 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
   void dispose() {
     _session?.dispose();
     _speech.dispose();
+    _chime?.dispose();
     _input.dispose();
     _scroll.dispose();
     super.dispose();
@@ -264,6 +267,18 @@ class _AssistOverlayScreenState extends State<AssistOverlayScreen> {
       return;
     }
     setState(() => _listening = true);
+    unawaited(_playReadySound());
+  }
+
+  /// A short chime so the user knows the microphone is open.
+  Future<void> _playReadySound() async {
+    if (!_storage.readySound) return;
+    try {
+      final player = _chime ??= AudioPlayer();
+      await player.play(AssetSource('sounds/ready.wav'), volume: 0.5);
+    } catch (_) {
+      // The chime is a courtesy, listening works without it
+    }
   }
 
   SpeechStream _openSpeech() => _speech.openStream(
